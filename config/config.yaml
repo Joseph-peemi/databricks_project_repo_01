@@ -1,0 +1,64 @@
+# =============================================================================
+# config.yaml
+# Single source of truth for every name/identifier used across the pipeline.
+# Every notebook and src/ module reads from this file (via src/utils.py::load_config)
+# instead of hard-coding strings. This is what lets you promote the same code
+# from dev -> staging -> prod by swapping one file (or one env var override).
+# =============================================================================
+
+unity_catalog:
+  catalog: main                 # UC catalog. Change to your own catalog if `main` is restricted.
+  schema: rag_lab                # UC schema (database) that will hold all lab assets.
+  volume: raw_docs                # UC Volume for landing raw Databricks documentation files.
+
+tables:
+  raw_docs_table: databricks_docs_raw          # Bronze: one row per source page/file.
+  chunked_docs_table: databricks_docs_chunked   # Silver: one row per chunk, ready for indexing.
+
+vector_search:
+  endpoint_name: rag_lab_vs_endpoint            # Vector Search compute endpoint (shared across indexes).
+  index_name: databricks_docs_index             # Will be fully qualified as <catalog>.<schema>.<index_name>
+  embedding_model_endpoint: databricks-bge-large-en   # Databricks Foundation Model API embedding model.
+  embedding_dimension: 1024                     # bge-large-en output dimension. Must match index schema.
+  pipeline_type: TRIGGERED                      # TRIGGERED = sync on demand; CONTINUOUS = near-real-time sync.
+  primary_key: chunk_id
+  embedding_source_column: chunk_text
+
+chunking:
+  strategy: recursive_character                 # recursive_character | markdown_header | token_based
+  chunk_size: 800                                # characters per chunk (~150-200 tokens for English prose)
+  chunk_overlap: 150                             # overlap preserves context across chunk boundaries
+  min_chunk_size: 50                             # discard near-empty chunks (nav fragments, etc.)
+
+llm:
+  serving_endpoint: databricks-meta-llama-3-3-70b-instruct   # Databricks Foundation Model API (pay-per-token)
+  temperature: 0.1                               # low temperature -> deterministic, grounded answers
+  max_tokens: 1024
+
+rag_chain:
+  num_results: 5                                 # top-k chunks retrieved per query
+  score_threshold: 0.0                            # optional similarity floor (0.0 = disabled)
+  system_prompt: >
+    You are a helpful assistant that answers questions about Databricks using
+    ONLY the provided context. If the answer is not contained in the context,
+    say "I don't have enough information in the Databricks documentation to
+    answer that." Always cite the source URL(s) you used.
+
+mlflow:
+  experiment_path: /Shared/rag_lab/databricks_docs_rag   # MLflow experiment for all runs
+  registered_model_name: main.rag_lab.databricks_docs_rag_model  # UC 3-level model name
+  model_alias: champion                           # alias promoted after evaluation passes
+
+serving:
+  endpoint_name: databricks_docs_rag_endpoint
+  workload_size: Small                            # Small | Medium | Large
+  scale_to_zero_enabled: true
+  inference_table_catalog: main
+  inference_table_schema: rag_lab
+  inference_table_prefix: rag_endpoint_logs
+
+evaluation:
+  eval_table: databricks_docs_eval_set             # UC table holding the golden Q/A/context set
+  min_faithfulness: 0.8
+  min_answer_correctness: 0.7
+  max_p90_latency_seconds: 3.0

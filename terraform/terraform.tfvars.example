@@ -1,0 +1,31 @@
+# Copy this file to terraform.tfvars and fill in the values marked REQUIRED.
+# terraform.tfvars is gitignored -- never commit real values, especially if
+# you end up adding any secret-like variables later.
+
+# git_repo_url already defaults to https://github.com/Joseph-peemi/databricks_project_repo_01.git
+# (see variables.tf) -- override here only if you fork or rename it.
+
+# --- Existing workspace (default path: provision_workspace = false) --------
+databricks_host = "https://adb-XXXXXXXXXXXXXXXX.XX.azuredatabricks.net"
+
+# --- Only if provision_workspace = true -------------------------------------
+# provision_workspace       = true
+# azure_subscription_id     = "00000000-0000-0000-0000-000000000000"
+# azure_resource_group_name = "rg-rag-lab"
+# azure_location             = "eastus2"
+
+# --- Naming (defaults already match config/config.yaml -- override only if
+# you changed names there too) ------------------------------------------------
+# catalog_name = "main"
+# schema_name  = "rag_lab"
+# volume_name  = "raw_docs"
+
+# --- Second-phase toggles (flip these AFTER the first successful pipeline
+# run -- see terraform/README.md) ---------------------------------------------
+# manage_vector_index = true
+# model_version        = "1"
+
+# --- People ---------------------------------------------------------------------
+run_as               = "peemijoe9522@gmail.com"
+notification_emails  = ["peemijoe9522@gmail.com"]
+reviewer_emails       = ["peemijoe9522@gmail.com"]

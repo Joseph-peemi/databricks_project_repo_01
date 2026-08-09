@@ -1,0 +1,44 @@
+# =============================================================================
+# requirements.txt
+# Pin versions for reproducibility. Install with:
+#   %pip install -r requirements.txt
+# inside a Databricks notebook cell (then %restart_python), or via a cluster-scoped
+# library / Databricks Asset Bundle environment spec for CI/CD.
+#
+# NOTE: Databricks Runtime 15.4 LTS ML (or 16.x ML) already ships numpy, pandas,
+# pyspark, mlflow, and scikit-learn — do NOT pin those here unless you need a
+# specific point release, or you risk clobbering the DBR-tested versions and
+# breaking cluster init.
+# =============================================================================
+
+# --- Core GenAI / RAG framework -------------------------------------------------
+mlflow[databricks]==2.19.0
+databricks-vectorsearch==0.42
+databricks-langchain==0.4.1        # ChatDatabricks + DatabricksVectorSearch retriever
+langchain==0.3.14
+langchain-community==0.3.14
+langchain-core==0.3.29
+langchain-text-splitters==0.3.5
+
+# --- Databricks control-plane SDK / Agent tooling -------------------------------
+databricks-sdk==0.40.0
+databricks-agents==0.16.0          # agents.deploy() -> serving endpoint + Review App
+
+# --- Evaluation ------------------------------------------------------------------
+mlflow[genai]==2.19.0              # mlflow.metrics.genai (faithfulness, relevance, ...)
+textstat==0.7.4                    # readability metrics used in chunk-quality checks
+tiktoken==0.8.0                    # token counting for latency/cost estimation
+
+# --- Document processing ----------------------------------------------------------
+beautifulsoup4==4.12.3
+markdownify==0.13.1
+lxml==5.3.0
+unstructured==0.16.11              # robust HTML/PDF/markdown parsing fallback
+
+# --- Testing -----------------------------------------------------------------------
+pytest==8.3.4
+pytest-mock==3.14.0
+
+# --- Utilities -----------------------------------------------------------------------
+pyyaml==6.0.2
+tenacity==9.0.0                    # retry/backoff wrapper for endpoint calls
