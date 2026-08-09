@@ -1,0 +1,18 @@
+# cp terraform.tfvars.example terraform.tfvars, then fill in.
+# terraform.tfvars is gitignored -- never commit it.
+
+databricks_host = "https://adb-YYYYYYYYYYYYYYYY.YY.azuredatabricks.net"
+
+run_as               = "peemijoe9522@gmail.com"
+notification_emails  = ["peemijoe9522@gmail.com"]
+reviewer_emails       = ["peemijoe9522@gmail.com"]
+
+# --- Second-phase toggles, set AFTER the first pipeline run (see root README) ---
+# manage_vector_index = true
+# model_version         = "1"
+
+# --- Recommended before promoting to prod: mirror prod's network posture ---
+# enable_network_hardening = true
+# vnet_id                    = "/subscriptions/.../virtualNetworks/vnet-rag-lab"
+# public_subnet_name        = "public-subnet"
+# private_subnet_name       = "private-subnet"

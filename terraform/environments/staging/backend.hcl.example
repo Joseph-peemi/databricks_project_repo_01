@@ -1,0 +1,4 @@
+resource_group_name  = "rg-terraform-state"
+storage_account_name = "sttfstateraglab"
+container_name        = "tfstate"
+key                    = "rag-lab/staging.tfstate"

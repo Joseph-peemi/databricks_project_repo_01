@@ -1,0 +1,261 @@
+# =============================================================================
+# .github/workflows/terraform.yml
+#
+# CI/CD for terraform/. Two halves:
+#   1. On every PR touching terraform/**: fmt check, validate, tflint, tfsec
+#      security scan, and a real `terraform plan` per environment posted as
+#      a PR comment for review -- nobody applies blind.
+#   2. On push to main: apply to dev automatically, then staging, then prod,
+#      each gated by a GitHub Environment. dev has no required reviewers;
+#      staging/prod DO (configured in GitHub repo Settings -> Environments,
+#      not in this file -- see terraform/README.md "One-time GitHub setup").
+#
+# Auth: OIDC federation to Azure AD, NOT a stored client secret. Requires a
+# one-time federated credential set up on an Azure AD App Registration (see
+# terraform/README.md) and `id-token: write` permission below.
+# =============================================================================
+
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Environment to plan/apply via manual trigger"
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+
+permissions:
+  id-token: write # required for OIDC login to Azure
+  contents: read
+  pull-requests: write # required to post the plan as a PR comment
+
+env:
+  TF_VERSION: "1.9.8"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  # ===========================================================================
+  # Static checks: run once, not per-environment -- formatting/validation/
+  # security posture doesn't vary by environment.
+  # ===========================================================================
+  static-checks:
+    name: fmt / validate / tflint / tfsec
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform fmt (check only, never auto-fix in CI)
+        run: terraform fmt -check -recursive
+
+      - name: terraform validate (module)
+        working-directory: terraform/modules/rag_lab
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: terraform validate (bootstrap)
+        working-directory: terraform/bootstrap
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: terraform validate (each environment)
+        run: |
+          for env in dev staging prod; do
+            echo "== $env =="
+            (cd "environments/$env" && terraform init -backend=false -input=false && terraform validate)
+          done
+
+      - name: tflint
+        uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init && tflint --recursive
+        working-directory: terraform
+
+      - name: tfsec security scan
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform
+          soft_fail: false # a finding fails the build -- this is a gate, not a suggestion
+
+  # ===========================================================================
+  # Plan: real backend, real (read-only) Azure credentials, one plan per
+  # environment. Uses a "<env>-plan" GitHub Environment holding read-only
+  # credentials with NO required reviewers, so plans are visible on every PR
+  # without needing an approval just to see a diff.
+  # ===========================================================================
+  plan:
+    name: plan (${{ matrix.env }})
+    needs: static-checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev, staging, prod]
+    environment: ${{ matrix.env }}-plan
+    defaults:
+      run:
+        working-directory: terraform/environments/${{ matrix.env }}
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
+      TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
+      TF_VAR_run_as: ${{ vars.RUN_AS }}
+      TF_VAR_notification_emails: ${{ vars.NOTIFICATION_EMAILS }}
+      TF_VAR_reviewer_emails: ${{ vars.REVIEWER_EMAILS }}
+      TF_VAR_git_branch: ${{ vars.GIT_BRANCH || 'main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init (real backend)
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_SA }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=rag-lab/${{ matrix.env }}.tfstate"
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -input=false -out=tfplan | tee plan_output.txt
+        continue-on-error: true
+
+      - name: Post plan as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('terraform/environments/${{ matrix.env }}/plan_output.txt', 'utf8').slice(-60000);
+            const body = `### Terraform Plan — \`${{ matrix.env }}\`\n<details><summary>Show plan</summary>\n\n\`\`\`\n${output}\n\`\`\`\n</details>`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      - name: Fail if plan step failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ===========================================================================
+  # Apply: dev auto-applies on merge to main. staging/prod use the real
+  # (read-write) "<env>" GitHub Environment, which a repo admin configures
+  # with required reviewers -- the job below LITERALLY PAUSES waiting for a
+  # human approval in the GitHub UI before `terraform apply` runs.
+  # ===========================================================================
+  apply-dev:
+    name: apply (dev)
+    needs: static-checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
+      TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
+      TF_VAR_run_as: ${{ vars.RUN_AS }}
+      TF_VAR_notification_emails: ${{ vars.NOTIFICATION_EMAILS }}
+      TF_VAR_reviewer_emails: ${{ vars.REVIEWER_EMAILS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_SA }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=rag-lab/dev.tfstate"
+      - run: terraform apply -auto-approve -input=false
+
+  apply-staging:
+    name: apply (staging)
+    needs: apply-dev
+    runs-on: ubuntu-latest
+    environment: staging # <- required reviewers configured in GitHub repo settings
+    defaults:
+      run:
+        working-directory: terraform/environments/staging
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
+      TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
+      TF_VAR_run_as: ${{ vars.RUN_AS }}
+      TF_VAR_notification_emails: ${{ vars.NOTIFICATION_EMAILS }}
+      TF_VAR_reviewer_emails: ${{ vars.REVIEWER_EMAILS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_SA }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=rag-lab/staging.tfstate"
+      - run: terraform apply -auto-approve -input=false
+
+  apply-prod:
+    name: apply (prod)
+    needs: apply-staging
+    runs-on: ubuntu-latest
+    environment: prod # <- required reviewers configured in GitHub repo settings
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
+      TF_VAR_databricks_host: ${{ vars.DATABRICKS_HOST }}
+      TF_VAR_run_as: ${{ vars.RUN_AS }}
+      TF_VAR_notification_emails: ${{ vars.NOTIFICATION_EMAILS }}
+      TF_VAR_reviewer_emails: ${{ vars.REVIEWER_EMAILS }}
+      TF_VAR_git_branch: ${{ vars.PROD_GIT_BRANCH }}
+      TF_VAR_vnet_id: ${{ vars.PROD_VNET_ID }}
+      TF_VAR_public_subnet_name: ${{ vars.PROD_PUBLIC_SUBNET_NAME }}
+      TF_VAR_private_subnet_name: ${{ vars.PROD_PRIVATE_SUBNET_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_SA }}" \
+            -backend-config="container_name=${{ vars.TF_STATE_CONTAINER }}" \
+            -backend-config="key=rag-lab/prod.tfstate"
+      - run: terraform apply -auto-approve -input=false

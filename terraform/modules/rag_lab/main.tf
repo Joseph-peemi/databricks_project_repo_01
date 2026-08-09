@@ -1,54 +1,52 @@
 # =============================================================================
-# main.tf
-# Terraform module for the Azure Databricks RAG lab infrastructure.
+# main.tf (module: rag_lab)
+#
+# Reusable module instantiated once per environment (see
+# ../../environments/{dev,staging,prod}/main.tf). No provider blocks here --
+# see versions.tf for why. Every environment root passes its own
+# provider config, backend, and tfvars, so the SAME reviewed module code
+# runs in dev, staging, and prod; only inputs differ.
 #
 # What this module DOES manage declaratively:
-#   - Unity Catalog catalog / schema / volume
+#   - Unity Catalog catalog / schema / volume (deletion-protected)
 #   - The Databricks Repo (git checkout of this project into the workspace)
 #   - The Vector Search endpoint (compute layer)
-#   - The Vector Search index itself (opt-in, second-phase -- see variables.tf)
-#   - A Unity Catalog registered-model "container" (no version yet)
+#   - The Vector Search index itself (opt-in, second-phase)
+#   - A Unity Catalog registered-model "container" (deletion-protected, no version yet)
 #   - A Databricks Job that runs notebooks 00-06 in sequence
-#   - A Model Serving endpoint (opt-in, second-phase, once a model version exists)
+#   - A Model Serving endpoint (opt-in, second-phase)
 #   - Permissions/grants across all of the above
 #
-# What this module does NOT and CANNOT manage (these are runtime/code
-# actions, not declarative infrastructure -- see the notebooks/ + src/ code):
+# What this module does NOT and CANNOT manage (runtime/code actions, not
+# declarative infra -- see ../../../notebooks + ../../../src):
 #   - Scraping/chunking documents and populating the Delta tables
 #   - Logging + registering an actual MLflow model VERSION
 #   - Running evaluation and deciding whether to promote an alias
-#   - Provisioning the Review App (no Terraform resource exists for it --
-#     it's created by the `databricks.agents.deploy()` Python SDK call in
-#     notebooks/06_deploy_model.py)
+#   - Provisioning the Review App (no Terraform resource exists for it)
 # =============================================================================
 
 locals {
-  databricks_host = var.provision_workspace ? azurerm_databricks_workspace.this[0].workspace_url : var.databricks_host
-
   full_chunked_table   = "${var.catalog_name}.${var.schema_name}.${var.chunked_docs_table}"
   full_index_name      = "${var.catalog_name}.${var.schema_name}.${var.vector_index_name}"
   full_registered_name = "${var.catalog_name}.${var.schema_name}.${var.registered_model_name}"
   repo_path            = "${var.workspace_repo_root}/rag-databricks-lab"
+
+  # Every environment-facing resource name carries the environment suffix so
+  # dev/staging/prod can coexist safely even if they ever land in the same
+  # workspace (not recommended long-term, but a real transitional state most
+  # orgs pass through).
+  vs_endpoint_name      = "${var.vector_search_endpoint_name}_${var.environment}"
+  job_name              = "${var.job_name}-${var.environment}"
+  serving_endpoint_name = "${var.serving_endpoint_name}_${var.environment}"
+
+  common_tags = {
+    environment = var.environment
+    project     = "rag-databricks-lab"
+    owner       = var.owner
+    managed_by  = "terraform"
+  }
 }
 
-provider "azurerm" {
-  features {}
-  subscription_id = var.azure_subscription_id != "" ? var.azure_subscription_id : null
-}
-
-provider "databricks" {
-  host = local.databricks_host != "" ? local.databricks_host : null
-  # Auth is intentionally NOT hardcoded here. Resolve it via environment
-  # variables, in order of preference for an Azure workspace:
-  #   - Azure CLI (simplest for interactive use):  `az login`, then just
-  #     set ARM_TENANT_ID / ARM_SUBSCRIPTION_ID if you have multiple tenants.
-  #   - Service principal (CI/CD):  ARM_CLIENT_ID, ARM_CLIENT_SECRET,
-  #     ARM_TENANT_ID, plus DATABRICKS_AZURE_RESOURCE_ID for the workspace.
-  #   - Databricks PAT (quick/lab use only, least preferred): DATABRICKS_TOKEN.
-  # Never put a token or client secret in this file or in terraform.tfvars.
-}
-
-# --- Cloud-agnostic lookups: resolves to a valid Azure SKU/runtime automatically ---
 data "databricks_spark_version" "ml_lts" {
   long_term_support = true
   ml                = true
@@ -56,22 +54,28 @@ data "databricks_spark_version" "ml_lts" {
 
 data "databricks_node_type" "smallest" {
   local_disk = true
-  # On Azure this resolves to something like Standard_DS3_v2. Override with
-  # an explicit node_type_id in the job_cluster block below if your
-  # subscription's quota requires a specific family (e.g. Standard_D4ds_v5).
 }
 
 # =============================================================================
 # Unity Catalog: catalog / schema / volume
+#
+# prevent_destroy is intentionally UNCONDITIONAL (Terraform's lifecycle
+# meta-arguments only accept literal booleans, never a variable), and
+# intentionally applies in every environment including dev: these resources
+# hold real ingested documentation data. Tearing one down requires a human
+# to deliberately delete this block (or `terraform state rm` + manual
+# deletion in the UI) -- friction is the point.
 # =============================================================================
 
 resource "databricks_catalog" "rag_lab" {
   count   = var.bootstrap_unity_catalog ? 1 : 0
   name    = var.catalog_name
-  comment = "RAG lab catalog: Databricks documentation Q&A pipeline"
+  comment = "RAG lab catalog (${var.environment}): Databricks documentation Q&A pipeline"
 
-  properties = {
-    purpose = "rag-databricks-lab"
+  properties = local.common_tags
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -79,8 +83,12 @@ resource "databricks_schema" "rag_lab" {
   count        = var.bootstrap_unity_catalog ? 1 : 0
   catalog_name = var.catalog_name
   name         = var.schema_name
-  comment      = "Tables, vector index, and registered model for the RAG lab"
+  comment      = "Tables, vector index, and registered model for the RAG lab (${var.environment})"
   depends_on   = [databricks_catalog.rag_lab]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "databricks_volume" "raw_docs" {
@@ -91,10 +99,14 @@ resource "databricks_volume" "raw_docs" {
   volume_type  = "MANAGED"
   comment      = "Landing zone for scraped Databricks documentation (notebooks/01)"
   depends_on   = [databricks_schema.rag_lab]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # =============================================================================
-# Git integration: check this project out into the workspace
+# Git integration
 # =============================================================================
 
 resource "databricks_repo" "rag_lab" {
@@ -109,15 +121,11 @@ resource "databricks_repo" "rag_lab" {
 # =============================================================================
 
 resource "databricks_vector_search_endpoint" "rag_lab" {
-  name          = var.vector_search_endpoint_name
+  name          = local.vs_endpoint_name
   endpoint_type = "STANDARD"
 }
 
-# Second-phase resource: the source Delta table (main.rag_lab.databricks_docs_chunked)
-# must already exist WITH Change Data Feed enabled before this can be created
-# -- that happens at runtime in notebooks/01, not via Terraform. Run the
-# pipeline job below once with manage_vector_index = false, THEN flip the
-# variable to true and re-apply so Terraform adopts ownership of the index.
+# Second-phase resource -- see root README "Two-phase resources".
 resource "databricks_vector_search_index" "rag_lab" {
   count         = var.manage_vector_index ? 1 : 0
   name          = local.full_index_name
@@ -137,29 +145,32 @@ resource "databricks_vector_search_index" "rag_lab" {
 }
 
 # =============================================================================
-# Unity Catalog registered model (empty container -- notebooks/04 logs the
-# actual versions into this via MLflow). Pre-creating it here means access
-# control on the model is Terraform-managed from day one instead of
-# whatever the first `mlflow.register_model()` caller happens to grant.
+# Unity Catalog registered model (empty container; notebooks/04 logs actual
+# versions into it via MLflow). Deletion-protected -- losing this loses the
+# entire version history and audit trail, not just a config object.
 # =============================================================================
 
 resource "databricks_registered_model" "rag_model" {
   catalog_name = var.catalog_name
   schema_name  = var.schema_name
   name         = var.registered_model_name
-  comment      = "RAG chain over Databricks documentation"
+  comment      = "RAG chain over Databricks documentation (${var.environment})"
   depends_on   = [databricks_schema.rag_lab]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # =============================================================================
-# Job: orchestrates notebooks 00-06 end to end.
-# Task 07 (Review App testing) is intentionally NOT included -- it's a
-# manual/human step, not something you'd want on a schedule.
+# Job: orchestrates notebooks 00-06 end to end. Task 07 (Review App testing)
+# is intentionally excluded -- it's a manual/human step.
 # =============================================================================
 
 resource "databricks_job" "rag_pipeline" {
   count = var.create_pipeline_job ? 1 : 0
-  name  = var.job_name
+  name  = local.job_name
+  tags  = local.common_tags
 
   job_cluster {
     job_cluster_key = "rag_cluster"
@@ -215,16 +226,12 @@ resource "databricks_job" "rag_pipeline" {
 }
 
 # =============================================================================
-# Model Serving endpoint -- second-phase resource, same reasoning as the
-# vector search index: needs a model VERSION to exist first (notebooks/04),
-# which needs to have passed evaluation (notebooks/05). Leave
-# var.model_version = "" until you have one; Terraform skips this resource
-# until then.
+# Model Serving endpoint -- second-phase resource, see root README.
 # =============================================================================
 
 resource "databricks_model_serving" "rag_endpoint" {
   count = var.model_version != "" ? 1 : 0
-  name  = var.serving_endpoint_name
+  name  = local.serving_endpoint_name
 
   config {
     served_entities {
@@ -240,6 +247,11 @@ resource "databricks_model_serving" "rag_endpoint" {
       schema_name       = var.schema_name
       table_name_prefix = "rag_endpoint_logs"
     }
+  }
+
+  tags {
+    key   = "environment"
+    value = var.environment
   }
 
   depends_on = [databricks_registered_model.rag_model]

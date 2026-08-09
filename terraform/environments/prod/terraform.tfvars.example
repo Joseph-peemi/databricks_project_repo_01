@@ -1,0 +1,22 @@
+# cp terraform.tfvars.example terraform.tfvars, then fill in.
+# terraform.tfvars is gitignored -- never commit it. In CI, these are
+# supplied as pipeline variables / GitHub Environment secrets instead of a
+# checked-out tfvars file -- see ../../../.github/workflows/terraform.yml.
+
+databricks_host = "https://adb-ZZZZZZZZZZZZZZZZ.ZZ.azuredatabricks.net"
+
+git_branch = "release/1.0.0" # REQUIRED, no default -- pin to a tagged release, not a moving branch
+
+run_as               = "peemijoe9522@gmail.com"
+notification_emails  = ["peemijoe9522@gmail.com"]
+reviewer_emails       = ["peemijoe9522@gmail.com"]
+
+# --- Network hardening defaults to true in prod -- fill these in or `plan` fails ---
+azure_subscription_id     = "00000000-0000-0000-0000-000000000000"
+vnet_id                    = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/vnet-rag-lab"
+public_subnet_name        = "public-subnet"
+private_subnet_name       = "private-subnet"
+
+# --- Second-phase toggles, set AFTER staging has verified the release ---
+# manage_vector_index = true
+# model_version         = "1"

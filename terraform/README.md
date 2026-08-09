@@ -1,118 +1,179 @@
-# Terraform module — Azure Databricks RAG lab infrastructure
+# Terraform — Azure Databricks RAG lab infrastructure (organization production standard)
 
-Provisions the infra shell for the RAG pipeline in `../notebooks` and `../src`:
-Unity Catalog objects, the Vector Search endpoint, a registered-model container,
-a Databricks Job that runs notebooks 00–06, and (once a model exists) the Model
-Serving endpoint. See the top-of-file comment in `main.tf` for exactly what is
-and isn't Terraform-manageable here — some steps (populating tables, logging a
-model version, the Review App) are runtime/code actions, not infrastructure.
+Provisions the infra shell for the RAG pipeline in `../notebooks` and `../src` across
+**dev / staging / prod**, with remote state, deletion protection on data-bearing
+resources, variable validation, security scanning, and a CI/CD pipeline with
+approval gates. If you're looking for the flat single-environment version this grew
+out of, it no longer exists on `main` — this structure replaces it.
 
-## Prerequisites
+## Structure
 
-- Terraform >= 1.7
-- An Azure Databricks workspace on the **Premium** SKU with Unity Catalog
-  attached (required for Vector Search + Model Serving + fine-grained UC
-  permissions). If you don't have one yet, set `provision_workspace = true`
-  (see below) and this module will create one.
-- Azure AD auth available in your shell: either `az login`, or a service
-  principal's `ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` set as
-  environment variables.
-- Foundation Model API pay-per-token access enabled on the workspace (for
-  `databricks-bge-large-en` and the LLM endpoint) — this is a workspace/account
-  entitlement Terraform doesn't control; verify it in the Databricks UI first.
-
-## Authentication
-
-Never put a token or client secret in `.tf`/`.tfvars` files. Set environment
-variables instead:
-
-```bash
-# Option A — Azure CLI (simplest for interactive/lab use)
-az login
-export ARM_SUBSCRIPTION_ID="<your-subscription-id>"
-
-# Option B — Service principal (CI/CD)
-export ARM_CLIENT_ID="..."
-export ARM_CLIENT_SECRET="..."
-export ARM_TENANT_ID="..."
-export ARM_SUBSCRIPTION_ID="..."
-
-# Option C — Databricks PAT (quickest for a one-off lab, least preferred)
-export DATABRICKS_TOKEN="dapiXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+```
+terraform/
+├── modules/rag_lab/          # the ONE reviewed module -- identical code runs in every environment
+│   ├── main.tf                # catalog/schema/volume (deletion-protected), repo, vector search,
+│   │                           # registered model, job, serving endpoint, permissions
+│   ├── azure_workspace.tf     # optional: provision the Azure Databricks workspace itself
+│   ├── network.tf             # optional: diagnostic logging to Log Analytics
+│   ├── variables.tf           # inputs, most with NO default -- forces explicit per-env values
+│   ├── outputs.tf
+│   └── versions.tf            # NO provider blocks -- see the comment at the top of versions.tf
+├── environments/
+│   ├── dev/                   # cheap, permissive, single-node, scale-to-zero
+│   ├── staging/               # mirrors prod's latency/network posture to catch issues pre-release
+│   └── prod/                  # network hardening ON by default, no scale-to-zero, deletion-protected
+│       (each: providers.tf, backend.tf, variables.tf, main.tf, outputs.tf,
+│        terraform.tfvars.example, backend.hcl.example)
+├── bootstrap/                 # run ONCE per Azure subscription: creates the remote state storage account
+├── policy/README.md           # security-scanning policy (tfsec gate, suppression convention)
+└── .tflint.hcl
 ```
 
-## Deploying into an EXISTING workspace (the common case)
+See the top-of-file comment in `modules/rag_lab/main.tf` for exactly what is and
+isn't Terraform-manageable — populating tables, logging a model version, and the
+Review App are runtime/code actions, not infrastructure, in every environment.
+
+## One-time setup (platform admin, not per-developer)
+
+### 1. Bootstrap the remote state backend
 
 ```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-# edit terraform.tfvars: set git_repo_url and databricks_host at minimum
-
+cd terraform/bootstrap
 terraform init
+terraform apply
+terraform output backend_config_dev      # paste into environments/dev/backend.hcl
+terraform output backend_config_staging  # paste into environments/staging/backend.hcl
+terraform output backend_config_prod     # paste into environments/prod/backend.hcl
+```
+
+Do this once. `bootstrap/` intentionally uses **local** state — it's the one
+piece of infrastructure that can't depend on the remote state store it's
+creating (see the comment at the top of `bootstrap/main.tf`). Back up its
+`terraform.tfstate` somewhere durable (encrypted, outside this repo).
+
+### 2. Azure AD OIDC federation (for CI, avoids any stored client secret)
+
+Create an App Registration, grant it Contributor + Storage Blob Data Contributor
+scoped to the resource groups involved, then add a federated credential trusting
+GitHub Actions for this repo:
+
+```bash
+az ad app federated-credential create \
+  --id <app-registration-object-id> \
+  --parameters '{
+    "name": "github-actions-rag-lab",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:Joseph-peemi/databricks_project_repo_01:ref:refs/heads/main",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+Add a second federated credential with `"subject": "repo:...:pull_request"` so PR
+plans (which don't run on the `main` ref) can authenticate too.
+
+### 3. GitHub repo configuration
+
+In **Settings → Environments**, create six environments:
+`dev`, `dev-plan`, `staging`, `staging-plan`, `prod`, `prod-plan`.
+
+- `*-plan` environments: read-only credentials, **no required reviewers** — PR
+  plans run and post automatically.
+- `dev`: no required reviewers — merges to `main` auto-apply.
+- `staging` / `prod`: **add required reviewers** here. This is the actual approval
+  gate; `.github/workflows/terraform.yml` has no gating logic of its own, it just
+  references these environment names and GitHub enforces the rule.
+
+On each environment, set these as **Environment variables** (not secrets — none of
+this is sensitive; the OIDC token exchange is what's actually protected):
+`ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, `TF_STATE_RG`,
+`TF_STATE_SA`, `TF_STATE_CONTAINER`, `DATABRICKS_HOST`, `RUN_AS`,
+`NOTIFICATION_EMAILS` (JSON list string, e.g. `["you@company.com"]`),
+`REVIEWER_EMAILS`. `prod` additionally needs `PROD_GIT_BRANCH`, `PROD_VNET_ID`,
+`PROD_PUBLIC_SUBNET_NAME`, `PROD_PRIVATE_SUBNET_NAME` (network hardening defaults
+ON in prod — see `environments/prod/variables.tf`).
+
+## Day-to-day workflow (after one-time setup)
+
+1. Branch, edit `modules/rag_lab/*` or an environment's `terraform.tfvars`, open a PR.
+2. CI runs `fmt -check`, `validate` (all 3 environments + module + bootstrap),
+   `tflint`, `tfsec` (blocking), then a real `terraform plan` per environment
+   posted as a PR comment.
+3. Merge to `main` → `apply-dev` runs automatically → `apply-staging` waits for a
+   reviewer approval in the GitHub UI → `apply-prod` waits for a separate
+   reviewer approval. Promotion is linear: prod can't apply before staging does.
+
+## Local usage (debugging, or before CI/environments exist)
+
+```bash
+cd environments/dev
+cp backend.hcl.example backend.hcl        # fill in from bootstrap output; gitignored
+cp terraform.tfvars.example terraform.tfvars   # fill in; gitignored
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```
 
 This creates: catalog/schema/volume, the git Repo checkout, the Vector Search
-*endpoint* (not yet the index), the registered-model container, and the
-pipeline Job — but does **not** yet create the Vector Search index or the
-Serving endpoint, because both depend on artifacts that only exist after the
-pipeline has actually run once (see "Two-phase apply" below).
+*endpoint* (not yet the index), the registered-model container, and the pipeline
+Job — but **not yet** the Vector Search index or Serving endpoint (see "Two-phase
+resources" below).
 
-## Standing up a NEW workspace from scratch
+## Standing up a NEW Azure Databricks workspace from scratch
 
-Set `provision_workspace = true` and fill in `azure_subscription_id` /
-`azure_resource_group_name` / `azure_location`. Because Terraform resolves
-provider configuration before resources, and the `databricks` provider needs
-the workspace URL that `azurerm_databricks_workspace` is about to create, this
-specific path requires **two applies**:
+Set `provision_workspace = true` in that environment's tfvars, plus
+`azure_subscription_id` / `azure_resource_group_name` / `azure_location`. Because
+Terraform resolves provider configuration before resources, and the `databricks`
+provider needs the workspace URL that `azurerm_databricks_workspace` is about to
+create, this path requires **two applies**:
 
 ```bash
-terraform apply -target=azurerm_databricks_workspace.this
-terraform apply    # now local.databricks_host resolves; everything else applies
+terraform apply -target=module.rag_lab.azurerm_databricks_workspace.this
+terraform apply    # everything else applies now that the workspace URL resolves
 ```
 
-This is a standard Terraform pattern for "provision the platform your own
-provider authenticates against" — not a workaround for a bug in this module.
+Standard Terraform pattern for "provision the platform your own provider
+authenticates against" — not a workaround for a bug in this module.
 
 ## Running the pipeline
 
-Terraform creates the Job; it does not run it (don't want `terraform apply`
-silently kicking off a multi-minute pipeline with real endpoint costs). Trigger
-it explicitly:
+Terraform creates the Job; it does not run it (an `apply` silently kicking off a
+multi-minute, real-money pipeline run would be a nasty surprise). Trigger it
+explicitly:
 
 ```bash
 databricks jobs run-now --job-id "$(terraform output -raw pipeline_job_id)"
 ```
 
-or click **Run Now** on the job in the Databricks Jobs UI (URL in
-`terraform output pipeline_job_url`).
-
 ## Two-phase resources: vector index and serving endpoint
 
-Both the Vector Search index and the Model Serving endpoint depend on
-artifacts that don't exist until code has actually run (a synced Delta table
-with Change Data Feed; a registered model version that passed evaluation).
-Trying to declare them unconditionally on the very first `apply` would fail.
-The pattern here:
+Both depend on artifacts that don't exist until code has actually run (a synced
+Delta table with Change Data Feed; a registered model version that passed
+evaluation). Declaring them unconditionally on the first `apply` would fail.
 
 | Phase | What you do | What happens |
 |---|---|---|
 | 1 | `terraform apply` with defaults (`manage_vector_index = false`, `model_version = ""`) | Infra shell + job created; index/serving skipped |
-| 2 | Run the job (`00`→`06`) at least once via the Databricks UI or CLI | Silver table + CDF created, index created via the notebook's own SDK call, a model version registered and evaluated |
-| 3 | Set `manage_vector_index = true` and `model_version = "<the version notebooks/04 printed>"` in `terraform.tfvars`, re-run `terraform apply` | Terraform imports/manages the index and creates the Serving endpoint going forward |
+| 2 | Run the job (`00`→`06`) at least once | Silver table + CDF created, index created via the notebook's own SDK call, a model version registered and evaluated |
+| 3 | Set `manage_vector_index = true` and `model_version = "<version notebooks/04 printed>"`, re-apply (via PR, same as any other change) | Terraform manages the index and creates the Serving endpoint going forward |
 
-After phase 3, subsequent re-ingestion/re-registration cycles are still driven
-by the notebooks (that's where the actual data/model work happens); Terraform
-just keeps owning the endpoint configs and permissions around them.
+## Deletion protection
+
+`modules/rag_lab/main.tf` sets `lifecycle { prevent_destroy = true }` on the
+catalog, schema, volume, and registered model — in **every** environment,
+including dev, because they hold real ingested data and version history, not
+just config. `terraform destroy` will refuse to remove them; that's intentional
+friction, not a bug. To actually decommission an environment: comment out the
+`prevent_destroy` blocks in a dedicated PR (so it's reviewed as a deliberate,
+visible act), apply, then destroy — don't reach for `-target` or manual state
+surgery as a shortcut.
 
 ## What's still manual after `terraform apply`
 
-- **The Review App** (lab task 7): there's no Terraform resource for it. Run
-  `notebooks/07_review_app_testing.py`, which calls `databricks.agents.deploy()`
-  / `agents.set_permissions()` directly via the Python SDK.
-- **Re-running ingestion** when the source docs change: re-trigger the job;
-  Terraform doesn't watch for upstream content changes.
+- **The Review App** (lab task 7): no Terraform resource exists for it. Run
+  `notebooks/07_review_app_testing.py`, which calls `databricks.agents.deploy()` /
+  `agents.set_permissions()` via the Python SDK.
+- **Re-running ingestion** when source docs change: re-trigger the job; Terraform
+  doesn't watch for upstream content changes.
 
 ## Destroying
 
@@ -120,7 +181,7 @@ just keeps owning the endpoint configs and permissions around them.
 terraform destroy
 ```
 
-Note this does **not** delete data written by the notebooks that Terraform
-never created a resource for (e.g. rows in the Delta tables, MLflow run
-history) — only the resources Terraform is tracking in state. Drop the schema
-manually (`DROP SCHEMA main.rag_lab CASCADE`) if you want a full teardown.
+Won't touch data written by the notebooks that Terraform never created a resource
+for (rows in Delta tables, MLflow run history) — only resources in Terraform
+state, and even then not the deletion-protected ones (see above) until you
+deliberately remove that protection.

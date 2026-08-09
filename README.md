@@ -29,6 +29,7 @@ fits into the overall architecture**. Full, runnable code lives in `notebooks/` 
 11. [End-to-End Workflow](#11-end-to-end-workflow)
 12. [Best Practices](#12-best-practices)
 13. [Troubleshooting Reference](#13-troubleshooting-reference)
+14. [Infrastructure as Code (Terraform)](#14-infrastructure-as-code-terraform)
 
 ---
 
@@ -828,8 +829,39 @@ Review App                 (Agent Framework Review App)
 
 ---
 
+## 14. Infrastructure as Code (Terraform)
+
+The infra shell around this pipeline — Unity Catalog objects, the Vector Search
+endpoint, the registered-model container, the orchestration Job, and (once a model
+exists) the Model Serving endpoint — is managed by Terraform in **[`terraform/`](terraform/README.md)**,
+built to organization production standard:
+
+- A single reviewed module (`terraform/modules/rag_lab`) instantiated per
+  environment (`dev` / `staging` / `prod`), not copy-pasted config
+- Remote state on Azure Blob Storage with versioning, bootstrapped once via
+  `terraform/bootstrap`
+- `prevent_destroy` on every data-bearing resource (catalog, schema, volume,
+  registered model) in every environment, including dev
+- Variable validation blocks that fail `terraform plan` with a clear message
+  instead of a confusing Databricks API error
+- No stored secrets — Azure AD OIDC federation for CI, `az login`/env vars locally
+- CI/CD (`.github/workflows/terraform.yml`): `fmt`/`validate`/`tflint`/`tfsec` gate
+  on every PR with a posted plan, then linear promotion dev → staging (reviewer
+  approval) → prod (reviewer approval) on merge
+- Optional network hardening (VNet injection, No Public IP, Log Analytics
+  diagnostics) — on by default in prod
+
+What Terraform does **not** manage — populating the Delta tables, logging/
+registering an actual MLflow model version, running evaluation, and provisioning
+the Review App — stays in the notebooks above; see `terraform/README.md` for the
+full explanation of that boundary and the "two-phase apply" pattern used for the
+Vector Search index and Serving endpoint.
+
+---
+
 ## References
 - `docs/architecture.md` — full architecture diagrams and component explanations
 - `config/config.yaml` — all configurable names/IDs used throughout the pipeline
+- `terraform/README.md` — infrastructure-as-code setup, CI/CD, and environment promotion
 - Databricks documentation: Mosaic AI Vector Search, Foundation Model APIs, MLflow
   on Databricks, Unity Catalog Model Registry, Mosaic AI Agent Framework & Review App
