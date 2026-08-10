@@ -13,7 +13,7 @@
 
 # --- Core GenAI / RAG framework -------------------------------------------------
 mlflow[databricks]==2.19.0
-databricks-vectorsearch==0.42
+databricks-vectorsearch==0.50
 databricks-langchain==0.4.1        # ChatDatabricks + DatabricksVectorSearch retriever
 langchain==0.3.14
 langchain-community==0.3.14
