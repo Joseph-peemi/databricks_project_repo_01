@@ -12,7 +12,7 @@
 # =============================================================================
 
 # --- Core GenAI / RAG framework -------------------------------------------------
-mlflow[databricks]==2.19.0
+mlflow[databricks]==2.20.1
 databricks-vectorsearch==0.50
 databricks-langchain==0.4.1        # ChatDatabricks + DatabricksVectorSearch retriever
 langchain==0.3.14
@@ -21,11 +21,11 @@ langchain-core==0.3.29
 langchain-text-splitters==0.3.5
 
 # --- Databricks control-plane SDK / Agent tooling -------------------------------
-databricks-sdk==0.40.0
+databricks-sdk==0.49.0
 databricks-agents==0.16.0          # agents.deploy() -> serving endpoint + Review App
 
 # --- Evaluation ------------------------------------------------------------------
-mlflow[genai]==2.19.0              # mlflow.metrics.genai (faithfulness, relevance, ...)
+mlflow[genai]==2.20.1              # mlflow.metrics.genai (faithfulness, relevance, ...)
 textstat==0.7.4                    # readability metrics used in chunk-quality checks
 tiktoken==0.8.0                    # token counting for latency/cost estimation
 
