@@ -28,11 +28,6 @@ variable "provision_workspace" {
   default     = false
 }
 
-variable "azure_subscription_id" {
-  type    = string
-  default = ""
-}
-
 variable "azure_resource_group_name" {
   type    = string
   default = ""

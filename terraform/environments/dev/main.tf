@@ -5,7 +5,6 @@ module "rag_lab" {
   owner       = "peemijoe9522@gmail.com"
 
   provision_workspace       = var.provision_workspace
-  azure_subscription_id     = var.azure_subscription_id
   azure_resource_group_name = var.azure_resource_group_name
   azure_location            = var.azure_location
 
