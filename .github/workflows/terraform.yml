@@ -126,6 +126,11 @@ jobs:
       TF_VAR_azure_location: ${{ vars.AZURE_LOCATION }}
       TF_VAR_provision_workspace: ${{ vars.PROVISION_WORKSPACE }}
       TF_VAR_node_type_id: ${{ vars.NODE_TYPE_ID }}
+      TF_VAR_vnet_id: ${{ vars.PROD_VNET_ID }}
+      TF_VAR_public_subnet_name: ${{ vars.PROD_PUBLIC_SUBNET_NAME }}
+      TF_VAR_private_subnet_name: ${{ vars.PROD_PRIVATE_SUBNET_NAME }}
+      TF_VAR_public_subnet_nsg_association_id: ${{ vars.PROD_PUBLIC_SUBNET_NSG_ASSOCIATION_ID }}
+      TF_VAR_private_subnet_nsg_association_id: ${{ vars.PROD_PRIVATE_SUBNET_NSG_ASSOCIATION_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -262,6 +267,13 @@ jobs:
       TF_VAR_vnet_id: ${{ vars.PROD_VNET_ID }}
       TF_VAR_public_subnet_name: ${{ vars.PROD_PUBLIC_SUBNET_NAME }}
       TF_VAR_private_subnet_name: ${{ vars.PROD_PRIVATE_SUBNET_NAME }}
+      TF_VAR_public_subnet_nsg_association_id: ${{ vars.PROD_PUBLIC_SUBNET_NSG_ASSOCIATION_ID }}
+      TF_VAR_private_subnet_nsg_association_id: ${{ vars.PROD_PRIVATE_SUBNET_NSG_ASSOCIATION_ID }}
+      TF_VAR_azure_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_azure_resource_group_name: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+      TF_VAR_azure_location: ${{ vars.AZURE_LOCATION }}
+      TF_VAR_provision_workspace: ${{ vars.PROVISION_WORKSPACE }}
+      TF_VAR_node_type_id: ${{ vars.NODE_TYPE_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3

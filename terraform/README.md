@@ -89,8 +89,23 @@ this is sensitive; the OIDC token exchange is what's actually protected):
 `TF_STATE_SA`, `TF_STATE_CONTAINER`, `DATABRICKS_HOST`, `RUN_AS`,
 `NOTIFICATION_EMAILS` (JSON list string, e.g. `["you@company.com"]`),
 `REVIEWER_EMAILS`. `prod` additionally needs `PROD_GIT_BRANCH`, `PROD_VNET_ID`,
-`PROD_PUBLIC_SUBNET_NAME`, `PROD_PRIVATE_SUBNET_NAME` (network hardening defaults
-ON in prod — see `environments/prod/variables.tf`).
+`PROD_PUBLIC_SUBNET_NAME`, `PROD_PRIVATE_SUBNET_NAME`, and (Azure Databricks
+workspace `custom_parameters` quirk: this field takes the *subnet's own*
+resource ID, not the NSG's) `PROD_PUBLIC_SUBNET_NSG_ASSOCIATION_ID` /
+`PROD_PRIVATE_SUBNET_NSG_ASSOCIATION_ID` (network hardening defaults ON in
+prod — see `environments/prod/variables.tf`).
+
+The VNet itself is **not** created by this module (see `azure_workspace.tf`'s
+top comment) — it's a landing-zone dependency a platform team owns. For this
+lab, that VNet was provisioned by hand in its own resource group
+(`rg-network-prod`, kept separate from `rg-rag-lab-prod` so Terraform's
+`azurerm_resource_group.this` doesn't collide with it): a `/16` VNet with two
+`/24` subnets (`public-subnet`, `private-subnet`), each delegated to
+`Microsoft.Databricks/workspaces`, each with its own NSG using Azure's
+default rules (no custom rules needed — the defaults already allow the
+VNet-internal and outbound-internet traffic Databricks' control plane needs).
+The CI service principal also needs **Network Contributor** on that resource
+group, since the workspace deployment has to join those subnets.
 
 If an environment sets `provision_workspace = true` in its `terraform.tfvars`
 (dev does, to stand up its own workspace — see "Standing up a NEW Azure
@@ -226,6 +241,14 @@ terraform apply    # everything else applies now that the workspace URL resolves
 
 Standard Terraform pattern for "provision the platform your own provider
 authenticates against" — not a workaround for a bug in this module.
+
+If you're applying as a CI service principal (not your own `az login`
+session), the first apply also creates the resource group, so you can't
+grant it Azure RBAC scoped to that resource group beforehand — do it between
+the two applies (Contributor + Storage Blob Data Contributor, same as step 2)
+and add the workspace-admin/Unity-Catalog access from step 4 before the
+second apply, or that one will fail on the UC resources (catalog, storage
+credential, etc.) the same way `apply(dev)` initially did.
 
 ## Running the pipeline
 
