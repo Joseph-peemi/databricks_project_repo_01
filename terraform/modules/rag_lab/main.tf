@@ -68,9 +68,10 @@ data "databricks_node_type" "smallest" {
 # =============================================================================
 
 resource "databricks_catalog" "rag_lab" {
-  count   = var.bootstrap_unity_catalog ? 1 : 0
-  name    = var.catalog_name
-  comment = "RAG lab catalog (${var.environment}): Databricks documentation Q&A pipeline"
+  count         = var.bootstrap_unity_catalog ? 1 : 0
+  name          = var.catalog_name
+  comment       = "RAG lab catalog (${var.environment}): Databricks documentation Q&A pipeline"
+  storage_root  = "${databricks_external_location.unity_catalog[0].url}${var.catalog_name}/"
 
   properties = local.common_tags
 
@@ -280,8 +281,18 @@ resource "databricks_permissions" "job" {
   count  = var.create_pipeline_job ? 1 : 0
   job_id = databricks_job.rag_pipeline[0].id
 
+  # The job's run_as user must always keep IS_OWNER -- Databricks rejects a
+  # permissions update that would strip management access from the creator.
+  # This can otherwise collide with the reviewer_emails loop below when
+  # run_as also appears in reviewer_emails (a real, expected overlap for a
+  # single-person dev environment).
+  access_control {
+    user_name        = var.run_as
+    permission_level = "IS_OWNER"
+  }
+
   dynamic "access_control" {
-    for_each = var.reviewer_emails
+    for_each = toset([for email in var.reviewer_emails : email if email != var.run_as])
     content {
       user_name        = access_control.value
       permission_level = "CAN_VIEW"
