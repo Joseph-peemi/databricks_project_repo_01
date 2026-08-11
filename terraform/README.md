@@ -92,6 +92,26 @@ this is sensitive; the OIDC token exchange is what's actually protected):
 `PROD_PUBLIC_SUBNET_NAME`, `PROD_PRIVATE_SUBNET_NAME` (network hardening defaults
 ON in prod — see `environments/prod/variables.tf`).
 
+If an environment sets `provision_workspace = true` in its `terraform.tfvars`
+(dev does, to stand up its own workspace — see "Standing up a NEW Azure
+Databricks workspace from scratch" below), that environment's GitHub
+Environment **also** needs `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP_NAME`,
+`AZURE_LOCATION`, `PROVISION_WORKSPACE`, and `NODE_TYPE_ID` set to match — CI
+has no access to your local `terraform.tfvars` (it's gitignored), so without
+these the apply job falls back to the variable defaults (`provision_workspace
+= false`), which plans to *destroy* the resource group and workspace instead
+of matching your local state.
+
+Also note: the federated credential `subject` in step 2 assumes your org
+hasn't turned on "use repository and organization ID instead of name" for
+Actions OIDC subject claims. If it has (check via `gh api
+repos/<owner>/<repo>/actions/oidc/customization/sub`), and any job pins an
+`environment:` (every job in `terraform.yml` does), the actual subject GitHub
+presents is `repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:<env-name>`
+— federated credentials need one entry per environment name
+(`dev`/`dev-plan`/`staging`/`staging-plan`/`prod`/`prod-plan`), not the
+`ref:refs/heads/main` / `pull_request` subjects shown above.
+
 ## Day-to-day workflow (after one-time setup)
 
 1. Branch, edit `modules/rag_lab/*` or an environment's `terraform.tfvars`, open a PR.
