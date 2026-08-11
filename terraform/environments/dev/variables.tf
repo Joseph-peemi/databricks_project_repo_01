@@ -111,6 +111,12 @@ variable "num_workers" {
   default = 0 # single-node cluster: cheapest, sufficient for a lab-scale corpus
 }
 
+variable "node_type_id" {
+  description = "Override the job cluster's VM SKU. See module variables.tf for why this exists."
+  type        = string
+  default     = ""
+}
+
 variable "run_as" {
   description = "Required -- no default. Set explicitly in terraform.tfvars."
   type        = string

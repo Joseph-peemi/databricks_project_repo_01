@@ -68,10 +68,10 @@ data "databricks_node_type" "smallest" {
 # =============================================================================
 
 resource "databricks_catalog" "rag_lab" {
-  count         = var.bootstrap_unity_catalog ? 1 : 0
-  name          = var.catalog_name
-  comment       = "RAG lab catalog (${var.environment}): Databricks documentation Q&A pipeline"
-  storage_root  = "${databricks_external_location.unity_catalog[0].url}${var.catalog_name}/"
+  count        = var.bootstrap_unity_catalog ? 1 : 0
+  name         = var.catalog_name
+  comment      = "RAG lab catalog (${var.environment}): Databricks documentation Q&A pipeline"
+  storage_root = "${databricks_external_location.unity_catalog[0].url}${var.catalog_name}/"
 
   properties = local.common_tags
 
@@ -177,7 +177,7 @@ resource "databricks_job" "rag_pipeline" {
     job_cluster_key = "rag_cluster"
     new_cluster {
       spark_version      = data.databricks_spark_version.ml_lts.id
-      node_type_id       = data.databricks_node_type.smallest.id
+      node_type_id       = var.node_type_id != "" ? var.node_type_id : data.databricks_node_type.smallest.id
       num_workers        = var.num_workers
       data_security_mode = "SINGLE_USER"
       single_user_name   = var.run_as

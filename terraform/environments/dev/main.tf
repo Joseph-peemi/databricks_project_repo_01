@@ -31,6 +31,7 @@ module "rag_lab" {
   run_as              = var.run_as
   notification_emails = var.notification_emails
   reviewer_emails     = var.reviewer_emails
+  node_type_id        = var.node_type_id
 
   vector_search_endpoint_name = var.vector_search_endpoint_name
   vector_index_name           = var.vector_index_name

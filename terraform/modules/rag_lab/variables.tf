@@ -139,6 +139,12 @@ variable "num_workers" {
   }
 }
 
+variable "node_type_id" {
+  description = "Override the job cluster's VM SKU. Leave empty to auto-pick the smallest node type with local disk -- set explicitly when that auto-picked family (often a confidential-computing SKU) has 0 quota on the subscription."
+  type        = string
+  default     = ""
+}
+
 variable "run_as" {
   description = "User email or service principal application ID the job runs as. No default -- every environment must set this explicitly (a job silently running as whoever happened to `terraform apply` first is a production incident waiting to happen)."
   type        = string

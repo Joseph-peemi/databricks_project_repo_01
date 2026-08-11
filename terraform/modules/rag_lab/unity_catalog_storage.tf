@@ -11,8 +11,8 @@
 
 locals {
   uc_resource_group_name = var.provision_workspace ? azurerm_resource_group.this[0].name : var.azure_resource_group_name
-  uc_location             = var.provision_workspace ? azurerm_resource_group.this[0].location : var.azure_location
-  uc_container_name       = "unity-catalog"
+  uc_location            = var.provision_workspace ? azurerm_resource_group.this[0].location : var.azure_location
+  uc_container_name      = "unity-catalog"
 }
 
 resource "azurerm_storage_account" "unity_catalog" {
@@ -32,17 +32,17 @@ resource "azurerm_storage_account" "unity_catalog" {
 }
 
 resource "azurerm_storage_container" "unity_catalog" {
-  count                 = var.bootstrap_unity_catalog ? 1 : 0
-  name                  = local.uc_container_name
-  storage_account_name  = azurerm_storage_account.unity_catalog[0].name
+  count                = var.bootstrap_unity_catalog ? 1 : 0
+  name                 = local.uc_container_name
+  storage_account_name = azurerm_storage_account.unity_catalog[0].name
 }
 
 resource "azurerm_databricks_access_connector" "unity_catalog" {
   count               = var.bootstrap_unity_catalog ? 1 : 0
   name                = "access-connector-rag-lab-${var.environment}"
   resource_group_name = local.uc_resource_group_name
-  location             = local.uc_location
-  tags                 = local.common_tags
+  location            = local.uc_location
+  tags                = local.common_tags
 
   identity {
     type = "SystemAssigned"
