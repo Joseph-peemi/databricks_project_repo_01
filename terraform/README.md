@@ -112,6 +112,79 @@ presents is `repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:<env-name>`
 (`dev`/`dev-plan`/`staging`/`staging-plan`/`prod`/`prod-plan`), not the
 `ref:refs/heads/main` / `pull_request` subjects shown above.
 
+### 4. Databricks-side access for the CI identity
+
+Azure RBAC (step 2) only covers the `azurerm` provider. The `databricks`
+provider authenticates as the same service principal but Databricks enforces
+its *own* authorization on top — Azure RBAC gets the SP nothing inside the
+workspace or Unity Catalog. Without this step, `apply` fails with
+`User not authorized` (workspace-level calls: repo, jobs, vector search,
+spark_version/node_type lookups) or `User does not have any privileges on ...`
+(Unity Catalog objects), even though `terraform init`/auth succeed.
+
+**Workspace access** — add the SP as a member of the workspace's `admins`
+group (SCIM API, needs an AAD token for the well-known Azure Databricks
+resource ID `2ff814a6-3304-4ab8-85cb-cd0e6f879c1d`, run as someone who's
+already a workspace admin):
+
+```bash
+TOKEN=$(az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d --query accessToken -o tsv)
+HOST="https://<workspace-url>"
+
+# register the SP in the workspace
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/scim+json" \
+  "$HOST/api/2.0/preview/scim/v2/ServicePrincipals" -d '{
+    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServicePrincipal"],
+    "applicationId": "<sp-app-id>",
+    "displayName": "github-actions-rag-lab",
+    "active": true,
+    "entitlements": [{"value": "workspace-access"}, {"value": "allow-cluster-create"}]
+  }'
+# note the returned "id", then add it to the admins group (look up the
+# admins group id via GET .../Groups?filter=displayName%20eq%20admins)
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/scim+json" \
+  "$HOST/api/2.0/preview/scim/v2/Groups/<admins-group-id>" -d '{
+    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+    "Operations": [{"op": "add", "value": {"members": [{"value": "<sp-scim-id>"}]}}]
+  }'
+```
+
+**Unity Catalog access** — workspace admin alone isn't enough for UC
+securables; each one enforces its own grants. Grant `MANAGE` to the SP
+(identified by its Azure AD application ID) on every UC object the module
+touches:
+
+```bash
+grant() { # $1 = securable type, $2 = full name
+  curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    "$HOST/api/2.1/unity-catalog/permissions/$1/$2" \
+    -d "{\"changes\":[{\"principal\":\"<sp-app-id>\",\"add\":[\"MANAGE\"]}]}"
+}
+grant storage_credential uc-storage-credential-<env>
+grant external_location  uc-external-location-<env>
+grant schema             <env>.rag_lab
+grant volume             <env>.rag_lab.raw_docs
+```
+
+**Catalog is different — grant it via ownership, not `MANAGE`.** The module's
+`databricks_grants.catalog` resource (`main.tf`) is *authoritative*: every
+apply replaces the catalog's whole grant list with exactly what's declared
+(`run_as`/`reviewer_emails`), which doesn't include the CI SP. If the SP's
+only authority is a `MANAGE` grant, that first `apply` strips its own grant
+as part of reconciling to desired state and dies mid-call with `User does not
+have MANAGE on Catalog` — it revoked the permission it needed to finish the
+revoke. Ownership isn't touched by `databricks_grants`, so make the SP the
+catalog owner instead:
+
+```bash
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "$HOST/api/2.1/unity-catalog/catalogs/<env>" -d '{"owner":"<sp-app-id>"}'
+```
+
+(`registered_model` permissions returned `REGISTERED_MODEL is not enabled`
+from this same API in testing — that securable type doesn't take grants this
+way. It didn't block `apply`, so left as-is; revisit if it ever does.)
+
 ## Day-to-day workflow (after one-time setup)
 
 1. Branch, edit `modules/rag_lab/*` or an environment's `terraform.tfvars`, open a PR.

@@ -223,6 +223,11 @@ jobs:
       TF_VAR_run_as: ${{ vars.RUN_AS }}
       TF_VAR_notification_emails: ${{ vars.NOTIFICATION_EMAILS }}
       TF_VAR_reviewer_emails: ${{ vars.REVIEWER_EMAILS }}
+      TF_VAR_azure_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_azure_resource_group_name: ${{ vars.AZURE_RESOURCE_GROUP_NAME }}
+      TF_VAR_azure_location: ${{ vars.AZURE_LOCATION }}
+      TF_VAR_provision_workspace: ${{ vars.PROVISION_WORKSPACE }}
+      TF_VAR_node_type_id: ${{ vars.NODE_TYPE_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
