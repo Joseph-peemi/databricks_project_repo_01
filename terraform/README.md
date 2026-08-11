@@ -83,6 +83,12 @@ In **Settings → Environments**, create six environments:
   gate; `.github/workflows/terraform.yml` has no gating logic of its own, it just
   references these environment names and GitHub enforces the rule.
 
+Also check **"Allow administrators to bypass configured protection rules"**
+on the `staging`/`prod` environment settings. If it's on (it is by default)
+and the person merging is a repo admin, the required-reviewer gate silently
+never triggers for them — no pause, no approve button, it just applies. Turn
+it off if the approval step needs to mean something even for admins.
+
 On each environment, set these as **Environment variables** (not secrets — none of
 this is sensitive; the OIDC token exchange is what's actually protected):
 `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, `TF_STATE_RG`,
