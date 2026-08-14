@@ -59,12 +59,15 @@ ensure_mlflow_experiment(cfg)
 # MAGIC as opaque 500s at inference time instead of clear schema-validation
 # MAGIC errors at logging time.
 # MAGIC
-# MAGIC `code_paths=["../src"]`: bundles the whole `src/` package (not just
-# MAGIC `rag_chain.py`) into the model artifact, since `rag_chain.py` imports
-# MAGIC `retriever.py` and `utils.py`. Forgetting this is the #1 cause of
-# MAGIC `ModuleNotFoundError` at serving time — the file logs fine locally
-# MAGIC (because `src` is on your notebook's `sys.path`) but fails in the
-# MAGIC isolated serving container that only has what was explicitly packaged.
+# MAGIC `code_paths=["../src", "../config"]`: bundles the whole `src/` package
+# MAGIC (not just `rag_chain.py`) into the model artifact, since `rag_chain.py`
+# MAGIC imports `retriever.py` and `utils.py` -- and `config/`, since
+# MAGIC `utils.py::load_config()` reads `config.yaml` from a path relative to
+# MAGIC its own file location. Forgetting either is the #1 cause of
+# MAGIC `ModuleNotFoundError` / `FileNotFoundError` at serving time — the file
+# MAGIC logs fine locally (because the whole repo checkout is on the
+# MAGIC notebook's filesystem) but fails in the isolated serving container
+# MAGIC that only has what was explicitly packaged.
 
 # COMMAND ----------
 
@@ -87,7 +90,12 @@ with mlflow.start_run(run_name="rag_chain_v1") as run:
     logged_model = mlflow.langchain.log_model(
         lc_model=str(project_root / "src" / "rag_chain.py"),
         artifact_path="rag_chain",
-        code_paths=[str(project_root / "src")],
+        # src/utils.py::load_config() resolves config.yaml relative to its own
+        # file location (../config/config.yaml) -- that only exists inside the
+        # served container if config/ is ALSO bundled, not just src/. Without
+        # it: "No such file or directory: '/model/code/config/config.yaml'"
+        # at model-load time in the serving container.
+        code_paths=[str(project_root / "src"), str(project_root / "config")],
         input_example=input_example,
         signature=signature,
         # requirements-serving.txt, not the full requirements.txt: the latter's
