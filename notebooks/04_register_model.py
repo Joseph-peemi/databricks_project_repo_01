@@ -34,6 +34,7 @@ if str(project_root) not in sys.path:
 
 import mlflow
 from mlflow.models import ModelSignature
+from mlflow.models.resources import DatabricksServingEndpoint, DatabricksVectorSearchIndex
 
 from src.utils import load_config, get_logger, ensure_mlflow_experiment  # noqa: E402
 
@@ -105,6 +106,18 @@ with mlflow.start_run(run_name="rag_chain_v1") as run:
         # "specifying mlflow" (it wants an unbracketed entry) -- see
         # requirements-serving.txt's header comment for the full explanation.
         pip_requirements=str(project_root / "requirements-serving.txt"),
+        # Without declaring these, the serving container can build and start
+        # fine but fails at model-LOAD time: "Reading Databricks credential
+        # configuration in model serving failed ... the model currently being
+        # served was logged without Databricks resource dependencies properly
+        # specified." MLflow uses this list to auto-provision scoped
+        # credentials for the resources the chain actually calls at inference
+        # time (the vector index via src/retriever.py, the LLM endpoint via
+        # ChatDatabricks in src/rag_chain.py).
+        resources=[
+            DatabricksVectorSearchIndex(index_name=cfg.vs_index_name),
+            DatabricksServingEndpoint(endpoint_name=cfg.llm_endpoint),
+        ],
         metadata={
             "vector_search_index": cfg.vs_index_name,
             "llm_endpoint": cfg.llm_endpoint,
