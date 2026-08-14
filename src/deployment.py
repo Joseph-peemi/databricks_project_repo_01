@@ -53,7 +53,21 @@ def deploy_with_agents_framework(cfg: Config, model_version: str):
         # internally), not the plain "Small"/"Medium"/"Large" string
         # config.yaml stores.
         workload_size=ServedModelInputWorkloadSize[cfg.raw["serving"]["workload_size"].upper()],
-        environment_vars={},  # inject secrets/env here, never hard-code them
+        # The Model Serving container is a separate compute plane from the
+        # job cluster this notebook runs on -- it does NOT inherit the
+        # RAG_<SECTION>__<KEY> env vars Terraform sets via spark_env_vars on
+        # the job cluster. Without re-passing them here, src/utils.py::load_config()
+        # falls back to config.yaml's literal "main" catalog inside the served
+        # container, even though `cfg` itself (built on the job cluster,
+        # which DOES have those env vars) is already correctly resolved to
+        # "dev" -- surfacing as "Unity Catalog entity main.rag_lab.<index>
+        # does not exist" at model-load time.
+        environment_vars={
+            "RAG_UNITY_CATALOG__CATALOG": cfg.catalog,
+            "RAG_VECTOR_SEARCH__ENDPOINT_NAME": cfg.vs_endpoint_name,
+            "RAG_MLFLOW__REGISTERED_MODEL_NAME": cfg.registered_model_name,
+            "RAG_SERVING__ENDPOINT_NAME": cfg.serving_endpoint_name,
+        },
         # Without this, agents.deploy() generates its own endpoint name from
         # model_name, which won't match cfg.serving_endpoint_name -- the name
         # notebook 06's later wait/query/inference-table steps rely on.
