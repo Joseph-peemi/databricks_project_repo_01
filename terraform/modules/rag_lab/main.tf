@@ -183,11 +183,33 @@ resource "databricks_job" "rag_pipeline" {
       single_user_name   = var.run_as
 
       # src/utils.py::load_config reads RAG_<SECTION>__<KEY> env vars to
-      # override config/config.yaml -- without this, cfg.catalog falls back
-      # to the YAML's literal "main", which Terraform never creates.
+      # override config/config.yaml. Every one of these overrides an
+      # environment-specific full resource name that config.yaml can only
+      # store one literal (dev/main) value for, but that this module
+      # suffixes/composes per environment -- without the override, the
+      # notebook computes a name that doesn't match what Terraform actually
+      # created (e.g. tries to create a second Vector Search endpoint and
+      # hits the 1-per-workspace quota instead of reusing the real one).
       spark_env_vars = {
-        RAG_UNITY_CATALOG__CATALOG = var.catalog_name
+        RAG_UNITY_CATALOG__CATALOG        = var.catalog_name
+        RAG_VECTOR_SEARCH__ENDPOINT_NAME  = local.vs_endpoint_name
+        RAG_MLFLOW__REGISTERED_MODEL_NAME = local.full_registered_name
+        RAG_SERVING__ENDPOINT_NAME        = local.serving_endpoint_name
       }
+
+      # num_workers = 0 alone does NOT make this a working single-node
+      # cluster -- it just means zero executors, so any real Spark stage
+      # (a Delta write, a shuffle) hangs forever waiting for a task slot
+      # that will never exist. These two settings are what actually tell
+      # Databricks to run the driver JVM as its own executor too.
+      spark_conf = var.num_workers == 0 ? {
+        "spark.databricks.cluster.profile" = "singleNode"
+        "spark.master"                     = "local[*]"
+      } : null
+
+      custom_tags = var.num_workers == 0 ? {
+        "ResourceClass" = "SingleNode"
+      } : null
     }
   }
 

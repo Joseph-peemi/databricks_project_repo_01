@@ -121,8 +121,14 @@ else:
 
 # COMMAND ----------
 
+import datetime  # noqa: E402
+
 index = vsc.get_index(endpoint_name=cfg.vs_endpoint_name, index_name=cfg.vs_index_name)
-index.wait_until_ready(timeout=1800)
+# databricks-vectorsearch==0.50's wait_until_ready compares elapsed time
+# (a timedelta) against `timeout` directly -- passing a raw int (seconds)
+# raises "'<' not supported between instances of 'datetime.timedelta' and
+# 'int'". Must pass a timedelta.
+index.wait_until_ready(timeout=datetime.timedelta(seconds=1800))
 log.info("Index status: ONLINE ✅")
 
 # Re-sync explicitly (no-op / fast if already up to date). Uncomment when
