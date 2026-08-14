@@ -94,6 +94,13 @@ with mlflow.start_run(run_name="rag_chain_v1") as run:
         metadata={
             "vector_search_index": cfg.vs_index_name,
             "llm_endpoint": cfg.llm_endpoint,
+            # Required for agents.deploy() (notebook 06) to recognize this as
+            # an Agent Framework model and use AI Gateway inference tables --
+            # without it, databricks.agents.utils.mlflow_utils._check_model_is_agent()
+            # returns False and the SDK falls back to the legacy
+            # auto_capture_config path, which the backend now rejects outright
+            # ("Legacy inference tables have been deprecated").
+            "task": "agent/v1/chat",
         },
     )
     mlflow.log_params(
