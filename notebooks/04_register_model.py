@@ -35,13 +35,13 @@ if str(project_root) not in sys.path:
 import mlflow
 from mlflow.models import infer_signature
 
-from src.utils import load_config, get_logger  # noqa: E402
+from src.utils import load_config, get_logger, ensure_mlflow_experiment  # noqa: E402
 
 log = get_logger("04_register_model")
 cfg = load_config()
 
 mlflow.set_registry_uri("databricks-uc")  # register into Unity Catalog, not the workspace registry
-mlflow.set_experiment(cfg.experiment_path)
+ensure_mlflow_experiment(cfg)
 
 # COMMAND ----------
 

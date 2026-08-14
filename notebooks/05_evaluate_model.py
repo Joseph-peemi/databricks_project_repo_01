@@ -32,14 +32,14 @@ if str(project_root) not in sys.path:
 
 import mlflow
 
-from src.utils import load_config, get_logger  # noqa: E402
+from src.utils import load_config, get_logger, ensure_mlflow_experiment  # noqa: E402
 from src.retriever import get_retriever  # noqa: E402
 from src import evaluation  # noqa: E402
 
 log = get_logger("05_evaluate")
 cfg = load_config()
 mlflow.set_registry_uri("databricks-uc")
-mlflow.set_experiment(cfg.experiment_path)
+ensure_mlflow_experiment(cfg)
 
 MODEL_VERSION = "1"  # <-- set to the version printed at the end of notebook 04
 model_uri = f"models:/{cfg.registered_model_name}/{MODEL_VERSION}"

@@ -170,6 +170,26 @@ def ensure_uc_objects(spark, cfg: Config) -> None:
     log.info(f"UC objects ready: {cfg.catalog}.{cfg.schema} (volume: {cfg.volume})")
 
 
+def ensure_mlflow_experiment(cfg: Config) -> None:
+    """Set the active MLflow experiment, creating its parent workspace
+    folder first if needed.
+
+    Unlike saving a notebook into a new path, `mlflow.create_experiment`
+    (called internally by `mlflow.set_experiment` the first time an
+    experiment path is used) does NOT auto-create missing parent workspace
+    directories -- it fails with "Parent directory does not exist", which
+    surfaces several frames deeper as an opaque
+    RestException("BAD_REQUEST: For input string: 'None'") instead of a
+    clear error. Creating the parent folder first avoids ever hitting that.
+    """
+    import mlflow
+    from databricks.sdk import WorkspaceClient
+
+    parent_dir = os.path.dirname(cfg.experiment_path)
+    WorkspaceClient().workspace.mkdirs(parent_dir)
+    mlflow.set_experiment(cfg.experiment_path)
+
+
 @retry(wait=wait_exponential(multiplier=1, min=1, max=10), stop=stop_after_attempt(4))
 def call_with_retry(fn, *args, **kwargs):
     """Wrap any endpoint call (embedding, LLM, vector search) with exponential

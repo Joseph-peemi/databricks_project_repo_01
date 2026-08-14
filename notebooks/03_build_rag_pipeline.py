@@ -31,14 +31,14 @@ if str(project_root) not in sys.path:
 
 import mlflow
 
-from src.utils import load_config, get_logger  # noqa: E402
+from src.utils import load_config, get_logger, ensure_mlflow_experiment  # noqa: E402
 from src.rag_chain import build_chain, build_prompt  # noqa: E402
 from src.retriever import get_retriever, format_retrieved_context  # noqa: E402
 
 log = get_logger("03_rag_pipeline")
 cfg = load_config()
 
-mlflow.set_experiment(cfg.experiment_path)
+ensure_mlflow_experiment(cfg)
 mlflow.langchain.autolog()  # traces every retriever/prompt/LLM call in the MLflow UI
 
 # COMMAND ----------
