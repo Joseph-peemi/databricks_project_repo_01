@@ -43,12 +43,16 @@ def deploy_with_agents_framework(cfg: Config, model_version: str):
          hand-manage Model Serving ACLs.
     """
     from databricks import agents
+    from databricks.sdk.service.serving import ServedModelInputWorkloadSize
 
     deployment = agents.deploy(
         model_name=cfg.registered_model_name,
         model_version=model_version,
         scale_to_zero=cfg.raw["serving"]["scale_to_zero_enabled"],
-        workload_size=cfg.raw["serving"]["workload_size"],
+        # agents.deploy expects the enum itself (it accesses .value
+        # internally), not the plain "Small"/"Medium"/"Large" string
+        # config.yaml stores.
+        workload_size=ServedModelInputWorkloadSize[cfg.raw["serving"]["workload_size"].upper()],
         environment_vars={},  # inject secrets/env here, never hard-code them
     )
     log.info(f"Agent deployment created: endpoint={deployment.endpoint_name}")
