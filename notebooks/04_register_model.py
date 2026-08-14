@@ -115,6 +115,11 @@ log.info(f"Run ID: {run.info.run_id}")
 
 sanity_model = mlflow.pyfunc.load_model(logged_model.model_uri)
 sanity_answer = sanity_model.predict(input_example)
+# Because the logged signature was inferred from a single dict/str example,
+# pyfunc enforces it as a one-row batch internally, so the LangChain flavor
+# returns a one-element list here instead of a bare string -- unwrap it.
+if isinstance(sanity_answer, list):
+    sanity_answer = sanity_answer[0]
 log.info(f"Sanity check answer: {sanity_answer}")
 assert isinstance(sanity_answer, str) and len(sanity_answer) > 0
 
@@ -175,7 +180,10 @@ client.set_model_version_tag(
 reloaded = mlflow.pyfunc.load_model(
     f"models:/{cfg.registered_model_name}/{registered.version}"
 )
-log.info(reloaded.predict(input_example))
+reloaded_answer = reloaded.predict(input_example)
+if isinstance(reloaded_answer, list):
+    reloaded_answer = reloaded_answer[0]
+log.info(reloaded_answer)
 
 # COMMAND ----------
 
