@@ -1,0 +1,29 @@
+# =============================================================================
+# requirements-serving.txt
+# Minimal dependency set for the SERVED model artifact -- logged by
+# notebook 04 (mlflow.langchain.log_model(pip_requirements=...)) instead of
+# the full requirements.txt.
+#
+# Two reasons this is separate from requirements.txt, not a subset filtered
+# at logging time:
+#   1. requirements.txt's mlflow[databricks]==2.20.1 / mlflow[genai]==2.20.1
+#      lines get merged by MLflow's own conda.yaml generator into a single
+#      combined-extras entry (mlflow[databricks,genai]==2.20.1), silently
+#      dropping any separate bare "mlflow==2.20.1" line in the same file.
+#      Databricks Model Serving's container-build validation specifically
+#      requires an unbracketed "mlflow" entry and rejects the merged one:
+#      "Environment file conda.yaml does not specify mlflow as a dependency."
+#   2. requirements.txt also carries ingestion/eval/test-only deps
+#      (unstructured, beautifulsoup4, pytest, ...) the served chain never
+#      imports -- see src/rag_chain.py, src/retriever.py, src/utils.py for
+#      the actual runtime import list this mirrors.
+# =============================================================================
+
+mlflow==2.20.1
+databricks-vectorsearch==0.66
+databricks-langchain==0.4.1
+langchain==0.3.14
+langchain-community==0.3.14
+langchain-core==0.3.29
+pyyaml==6.0.2
+tenacity==9.0.0

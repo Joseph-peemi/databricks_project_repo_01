@@ -90,7 +90,13 @@ with mlflow.start_run(run_name="rag_chain_v1") as run:
         code_paths=[str(project_root / "src")],
         input_example=input_example,
         signature=signature,
-        pip_requirements=str(project_root / "requirements.txt"),
+        # requirements-serving.txt, not the full requirements.txt: the latter's
+        # mlflow[databricks]==2.20.1 / mlflow[genai]==2.20.1 lines get merged by
+        # MLflow's own conda.yaml generator into mlflow[databricks,genai]==2.20.1,
+        # which Model Serving's container-build validation doesn't recognize as
+        # "specifying mlflow" (it wants an unbracketed entry) -- see
+        # requirements-serving.txt's header comment for the full explanation.
+        pip_requirements=str(project_root / "requirements-serving.txt"),
         metadata={
             "vector_search_index": cfg.vs_index_name,
             "llm_endpoint": cfg.llm_endpoint,

@@ -12,14 +12,6 @@
 # =============================================================================
 
 # --- Core GenAI / RAG framework -------------------------------------------------
-# mlflow==2.20.1 (bare, no extras) is listed explicitly and separately from the
-# [databricks]/[genai] extras below: notebook 04 logs this whole file as the
-# served model's pip_requirements, and Model Serving's container-build
-# validation rejects the packaged conda.yaml if it can't find an unqualified
-# "mlflow" dependency -- "mlflow[databricks]==2.20.1" alone was NOT recognized
-# as satisfying that check ("Container image creation aborted - unsupported
-# model: Environment file conda.yaml does not specify mlflow as a dependency").
-mlflow==2.20.1
 mlflow[databricks]==2.20.1
 databricks-vectorsearch==0.66     # >=0.57 needed for databricks.vector_search.reranker (imported unconditionally by databricks-ai-bridge); pin <0.67 since 0.67+ requires mlflow-skinny>=3.10.1, conflicting with mlflow==2.20.1 below
 databricks-langchain==0.4.1        # ChatDatabricks + DatabricksVectorSearch retriever
