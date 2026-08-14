@@ -13,7 +13,7 @@
 
 # --- Core GenAI / RAG framework -------------------------------------------------
 mlflow[databricks]==2.20.1
-databricks-vectorsearch==0.75    # >=0.57 required: databricks-ai-bridge (pulled in by databricks-langchain) imports databricks.vector_search.reranker unconditionally
+databricks-vectorsearch==0.66     # >=0.57 needed for databricks.vector_search.reranker (imported unconditionally by databricks-ai-bridge); pin <0.67 since 0.67+ requires mlflow-skinny>=3.10.1, conflicting with mlflow==2.20.1 below
 databricks-langchain==0.4.1        # ChatDatabricks + DatabricksVectorSearch retriever
 langchain==0.3.14
 langchain-community==0.3.14
@@ -33,7 +33,7 @@ tiktoken==0.8.0                    # token counting for latency/cost estimation
 beautifulsoup4==4.12.3
 markdownify==0.13.1
 lxml==5.3.0
-unstructured==0.16.11              # robust HTML/PDF/markdown parsing fallback
+unstructured==0.16.19              # robust HTML/PDF/markdown parsing fallback (0.16.11-0.16.18 were pulled from PyPI)
 
 # --- Testing -----------------------------------------------------------------------
 pytest==8.3.4
