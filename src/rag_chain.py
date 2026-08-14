@@ -113,14 +113,20 @@ def build_chain(cfg=None):
 # ---------------------------------------------------------------------------
 # "Models from Code" entrypoint.
 #
-# MLflow's code-based logging (`mlflow.langchain.log_model(lc_model=<path>)`)
-# loads this file with `runpy`, executing it as `__main__`. Guarding on that
-# means:
+# mlflow.langchain.log_model(lc_model=<path>) does NOT use runpy / __main__
+# (despite what older MLflow docs/examples suggest) -- as of mlflow==2.20.1
+# it loads this file via importlib.util.spec_from_file_location with a
+# random module name ("code_model_<uuid>"), so `__name__ == "__main__"`
+# never matches and mlflow.models.set_model() silently never runs, which
+# surfaces as "ensure the model is set using mlflow.models.set_model()"
+# several frames away from this file. Guard on the "code_model_" prefix
+# MLflow actually uses instead, so this still means:
 #   - `import src.rag_chain` from a notebook or test does NOT execute this
-#     block (safe: no live endpoint calls just from importing the module).
+#     block (__name__ == "src.rag_chain": safe, no live endpoint calls just
+#     from importing the module).
 #   - When MLflow logs/serves THIS FILE AS THE MODEL, the block runs,
 #     builds the chain, and registers it with `mlflow.models.set_model`.
 # ---------------------------------------------------------------------------
-if __name__ == "__main__":
+if __name__ == "__main__" or __name__.startswith("code_model_"):
     chain = build_chain()
     mlflow.models.set_model(chain)
