@@ -83,6 +83,14 @@ def build_chain(cfg=None):
     else ("The model's schema is not compatible with Agent Framework").
     `history` is accepted for schema compatibility but not yet used to
     condition generation -- see README for multi-turn follow-up work.
+
+    A second input shape is also accepted at runtime (see `_extract_query`
+    below): the `task: agent/v1/chat` metadata set at logging time makes
+    the SERVED endpoint additionally accept standard ChatCompletion
+    {"messages": [...]} requests -- what the Review App and most chat UIs
+    actually send. The serving framework converts that into a bare list of
+    LangChain `BaseMessage` objects before invoking this chain, not our
+    declared dict shape.
     """
     cfg = cfg or load_config()
 
@@ -94,14 +102,27 @@ def build_chain(cfg=None):
         max_tokens=cfg.raw["llm"]["max_tokens"],
     )
 
-    def _retrieve_and_format(inputs: dict) -> str:
-        docs = retriever.invoke(inputs["query"])
+    def _extract_query(inputs) -> str:
+        # The "task": "agent/v1/chat" metadata set at logging time (notebook
+        # 04) makes the serving framework accept EITHER wire format: our
+        # declared {"query": ..., "history": [...]} shape, OR a standard
+        # ChatCompletion {"messages": [...]} request (what the Review App
+        # and most chat UIs actually send). For the latter, the framework
+        # converts it *before* invoking this chain into a bare list of
+        # LangChain BaseMessage objects (e.g. [HumanMessage(content=...)]),
+        # not our dict shape -- inputs["query"] raises TypeError on a list.
+        if isinstance(inputs, list):
+            return inputs[-1].content
+        return inputs["query"]
+
+    def _retrieve_and_format(inputs) -> str:
+        docs = retriever.invoke(_extract_query(inputs))
         return format_retrieved_context(docs)
 
     rag_chain = (
         {
             "context": RunnableLambda(_retrieve_and_format),
-            "question": RunnablePassthrough() | RunnableLambda(lambda x: x["query"]),
+            "question": RunnablePassthrough() | RunnableLambda(_extract_query),
         }
         | prompt
         | llm
