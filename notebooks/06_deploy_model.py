@@ -39,7 +39,15 @@ cfg = load_config()
 mlflow.set_registry_uri("databricks-uc")
 client = MlflowClient()
 
-MODEL_VERSION = "1"  # <-- must match the version that PASSED evaluation in notebook 05
+# Pull the version notebook 04 just registered in this same job run (falls
+# back to "1" when run standalone/interactively, outside the job's task DAG).
+# Must match the version that PASSED evaluation in notebook 05.
+MODEL_VERSION = dbutils.jobs.taskValues.get(  # noqa: F821
+    taskKey="04_register_model",
+    key="registered_model_version",
+    default="1",
+    debugValue="1",
+)
 
 # COMMAND ----------
 

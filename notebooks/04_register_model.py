@@ -150,6 +150,13 @@ registered = mlflow.register_model(
 )
 log.info(f"Registered {cfg.registered_model_name} as version {registered.version}")
 
+# Hand the version this run just registered to notebooks 05/06 via Databricks
+# Jobs task values -- every prior run happened to be the FIRST registration
+# (version 1), which masked that those notebooks otherwise hard-code
+# MODEL_VERSION = "1" and would silently evaluate/deploy a stale earlier
+# version once more than one version exists.
+dbutils.jobs.taskValues.set(key="registered_model_version", value=registered.version)  # noqa: F821
+
 # COMMAND ----------
 
 # MAGIC %md
