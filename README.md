@@ -816,6 +816,13 @@ Review App                 (Agent Framework Review App)
 
 ## 13. Troubleshooting Reference
 
+> **Looking for a specific error message?** This table covers general
+> categories. **[`RUNBOOK.md`](RUNBOOK.md)** has the full incident log of every
+> real failure hit getting this pipeline green in `dev` — exact error text,
+> root cause, and the fix, for 30 distinct issues spanning infra, dependency
+> pinning, MLflow internals, and Model Serving deployment. Check there first
+> if the error below doesn't match exactly.
+
 | Problem | Where to look | Likely fix |
 |---|---|---|
 | `ModuleNotFoundError` when serving | Model logging step | Add the missing package to `code_paths` in `mlflow.langchain.log_model` |
@@ -863,5 +870,7 @@ Vector Search index and Serving endpoint.
 - `docs/architecture.md` — full architecture diagrams and component explanations
 - `config/config.yaml` — all configurable names/IDs used throughout the pipeline
 - `terraform/README.md` — infrastructure-as-code setup, CI/CD, and environment promotion
+- **[`RUNBOOK.md`](RUNBOOK.md)** — real incident log: every failure hit getting the
+  pipeline green, with root cause and fix for each
 - Databricks documentation: Mosaic AI Vector Search, Foundation Model APIs, MLflow
   on Databricks, Unity Catalog Model Registry, Mosaic AI Agent Framework & Review App
