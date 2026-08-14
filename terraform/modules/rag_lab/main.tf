@@ -181,6 +181,13 @@ resource "databricks_job" "rag_pipeline" {
       num_workers        = var.num_workers
       data_security_mode = "SINGLE_USER"
       single_user_name   = var.run_as
+
+      # src/utils.py::load_config reads RAG_<SECTION>__<KEY> env vars to
+      # override config/config.yaml -- without this, cfg.catalog falls back
+      # to the YAML's literal "main", which Terraform never creates.
+      spark_env_vars = {
+        RAG_UNITY_CATALOG__CATALOG = var.catalog_name
+      }
     }
   }
 
