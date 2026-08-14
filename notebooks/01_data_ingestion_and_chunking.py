@@ -48,8 +48,8 @@ DOC_URLS = [
     "https://docs.databricks.com/en/delta/index.html",
     "https://docs.databricks.com/en/delta/delta-change-data-feed.html",
     "https://docs.databricks.com/en/delta-live-tables/index.html",
-    "https://docs.databricks.com/en/unity-catalog/index.html",
-    "https://docs.databricks.com/en/unity-catalog/external-locations.html",
+    "https://docs.databricks.com/en/data-governance/unity-catalog/index.html",
+    "https://docs.databricks.com/en/connect/unity-catalog/cloud-storage/external-locations.html",
     "https://docs.databricks.com/en/generative-ai/vector-search.html",
     "https://docs.databricks.com/en/machine-learning/model-serving/index.html",
     "https://docs.databricks.com/en/mlflow/index.html",
@@ -62,16 +62,23 @@ DOC_URLS = [
 # COMMAND ----------
 
 import time
+import urllib.error
 import urllib.request
 
 dbutils.fs.mkdirs(cfg.volume_path)  # noqa: F821 (dbutils is injected by Databricks)
 
 for url in DOC_URLS:
-    slug = url.split("docs.databricks.com/")[-1].replace("/", "__").rstrip(".html") + ".html"
+    slug = url.split("docs.databricks.com/")[-1].replace("/", "__").removesuffix(".html") + ".html"
     dest = f"{cfg.volume_path}/{slug}"
     req = urllib.request.Request(url, headers={"User-Agent": "databricks-rag-lab/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        html_bytes = resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            html_bytes = resp.read()
+    except urllib.error.HTTPError as e:
+        # Databricks docs restructure pages over time; don't let one stale
+        # URL abort the whole ingestion run.
+        log.warning(f"Skipping {url}: {e}")
+        continue
     dbutils.fs.put(dest, html_bytes.decode("utf-8", errors="ignore"), overwrite=True)  # noqa: F821
     log.info(f"Downloaded {url} -> {dest}")
     time.sleep(1)  # polite rate limit
