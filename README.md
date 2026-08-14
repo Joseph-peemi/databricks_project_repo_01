@@ -819,7 +819,7 @@ Review App                 (Agent Framework Review App)
 > **Looking for a specific error message?** This table covers general
 > categories. **[`RUNBOOK.md`](RUNBOOK.md)** has the full incident log of every
 > real failure hit getting this pipeline green in `dev` — exact error text,
-> root cause, and the fix, for 30 distinct issues spanning infra, dependency
+> root cause, and the fix, for 31 distinct issues spanning infra, dependency
 > pinning, MLflow internals, and Model Serving deployment. Check there first
 > if the error below doesn't match exactly.
 

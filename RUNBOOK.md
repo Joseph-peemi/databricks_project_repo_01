@@ -505,6 +505,38 @@ came back as a bare `{"content": ..., "id": ..., "databricks_output":
 {...}}` dict, no `"predictions"` wrapper.
 — `src/deployment.py` (commit `3b452a3`)
 
+### 31. Chain crashed on real-world traffic: Review App requests use a different wire format than direct API calls
+**Symptom:** the Review App returned
+`InternalError: {"error_code":"BAD_REQUEST","message":"Encountered an
+unexpected error while converting model response to JSON. Error 'Invalid
+Agent output. Outputs must be a JSON dictionary, but got <class
+'NoneType'>.'"}` — even though the exact same question worked fine via a
+direct REST call with `{"query": ..., "history": []}`.
+
+**Root cause:** the `task: agent/v1/chat` metadata (incident #23) makes the
+endpoint accept **either** our declared `SplitChatMessagesRequest` shape
+**or** a standard ChatCompletion `{"messages": [...]}` request — which is
+what the Review App (and most chat UIs) actually send. For the latter, the
+serving framework converts the request into a bare **list of LangChain
+`BaseMessage` objects** before invoking the chain, not our dict shape.
+`inputs["query"]` then raised
+`TypeError: list indices must be integers or slices, not str` deep inside
+the chain, which got swallowed somewhere upstream instead of propagating
+as a clear error — surfacing to the caller as an opaque `NoneType` output
+error. Confirmed by reproducing directly: `{"query": "...", "history":
+[]}` via REST worked; `{"messages": [{"role": "user", "content": "..."}]}`
+(the Review App's actual format) reproduced the exact crash, and the
+serving logs showed the real traceback including the offending request
+payload (`[HumanMessage(content='WHAT IS DATABRICKS', ...)]`).
+
+**Fix:** `_extract_query()` in `src/rag_chain.py` handles both shapes —
+`inputs[-1].content` if `inputs` is a list (ChatCompletion path),
+`inputs["query"]` otherwise. **Lesson:** a schema declared at logging time
+is not the only shape a served Agent Framework endpoint will actually
+receive at runtime — test via the actual UI/client a real user will use,
+not just a direct API call matching the declared signature.
+— `src/rag_chain.py` (commit `2d2488d`)
+
 ---
 
 ## General lessons
