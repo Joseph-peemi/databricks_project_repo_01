@@ -54,6 +54,10 @@ def deploy_with_agents_framework(cfg: Config, model_version: str):
         # config.yaml stores.
         workload_size=ServedModelInputWorkloadSize[cfg.raw["serving"]["workload_size"].upper()],
         environment_vars={},  # inject secrets/env here, never hard-code them
+        # Without this, agents.deploy() generates its own endpoint name from
+        # model_name, which won't match cfg.serving_endpoint_name -- the name
+        # notebook 06's later wait/query/inference-table steps rely on.
+        endpoint_name=cfg.serving_endpoint_name,
     )
     log.info(f"Agent deployment created: endpoint={deployment.endpoint_name}")
     log.info(f"Review App URL: {deployment.review_app_url}")
