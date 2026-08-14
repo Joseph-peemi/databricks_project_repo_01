@@ -151,8 +151,18 @@ def ensure_uc_objects(spark, cfg: Config) -> None:
     Best practice: never assume a catalog/schema exists in a fresh workspace.
     `CREATE ... IF NOT EXISTS` makes the notebook safely re-runnable, which
     matters a lot when students/engineers re-run cells out of order.
+
+    `CREATE CATALOG IF NOT EXISTS` still validates the metastore's default
+    storage root even when the catalog already exists -- on a metastore with
+    no default storage root configured (this workspace's, and most fresh
+    Azure workspaces), that raises INVALID_STATE regardless of the IF NOT
+    EXISTS guard. cfg.catalog is Terraform-managed with its own explicit
+    storage root (see modules/rag_lab/main.tf), so checking existence first
+    and skipping the CREATE entirely avoids ever hitting that validation.
     """
-    spark.sql(f"CREATE CATALOG IF NOT EXISTS {cfg.catalog}")
+    existing_catalogs = {row.catalog for row in spark.sql("SHOW CATALOGS").collect()}
+    if cfg.catalog not in existing_catalogs:
+        spark.sql(f"CREATE CATALOG IF NOT EXISTS {cfg.catalog}")
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {cfg.catalog}.{cfg.schema}")
     spark.sql(
         f"CREATE VOLUME IF NOT EXISTS {cfg.catalog}.{cfg.schema}.{cfg.volume}"
