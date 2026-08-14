@@ -13,7 +13,7 @@
 
 # --- Core GenAI / RAG framework -------------------------------------------------
 mlflow[databricks]==2.20.1
-databricks-vectorsearch==0.50
+databricks-vectorsearch==0.75    # >=0.57 required: databricks-ai-bridge (pulled in by databricks-langchain) imports databricks.vector_search.reranker unconditionally
 databricks-langchain==0.4.1        # ChatDatabricks + DatabricksVectorSearch retriever
 langchain==0.3.14
 langchain-community==0.3.14
