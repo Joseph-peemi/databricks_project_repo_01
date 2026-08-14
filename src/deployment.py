@@ -120,6 +120,8 @@ def query_endpoint(cfg: Config, question: str) -> str:
     response = call_with_retry(
         client.predict,
         endpoint=cfg.serving_endpoint_name,
-        inputs={"inputs": [{"question": question}]},
+        inputs={"inputs": [{"query": question, "history": []}]},
     )
-    return response["predictions"][0]
+    # Matches the registered model's StringResponse output shape ({"content": ...}),
+    # required by the Agent Framework deployment in deploy_with_agents_framework().
+    return response["predictions"][0]["content"]

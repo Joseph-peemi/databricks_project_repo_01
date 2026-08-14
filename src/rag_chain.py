@@ -72,12 +72,17 @@ def build_prompt(system_prompt: str) -> ChatPromptTemplate:
 def build_chain(cfg=None):
     """Construct the full retriever -> prompt -> LLM -> parser chain.
 
-    Input shape:  {"question": "<user question>"}
-    Output shape: "<answer string>"
+    Input shape:  {"query": "<user question>", "history": [...]}
+    Output shape: {"content": "<answer string>"}
 
-    Using a dict input (rather than a bare string) keeps the chain
-    extensible -- e.g. adding conversation history or a `filters` field
-    later doesn't break the calling convention.
+    This matches MLflow's `SplitChatMessagesRequest` / `StringResponse`
+    signatures (see notebook 04) instead of a bespoke {"question": ...} ->
+    str shape, because notebook 06 deploys via the Agent Framework
+    (`databricks.agents.deploy`), which validates the registered model's
+    schema against exactly those two shapes and refuses to deploy anything
+    else ("The model's schema is not compatible with Agent Framework").
+    `history` is accepted for schema compatibility but not yet used to
+    condition generation -- see README for multi-turn follow-up work.
     """
     cfg = cfg or load_config()
 
@@ -90,17 +95,18 @@ def build_chain(cfg=None):
     )
 
     def _retrieve_and_format(inputs: dict) -> str:
-        docs = retriever.invoke(inputs["question"])
+        docs = retriever.invoke(inputs["query"])
         return format_retrieved_context(docs)
 
     rag_chain = (
         {
             "context": RunnableLambda(_retrieve_and_format),
-            "question": RunnablePassthrough() | RunnableLambda(lambda x: x["question"]),
+            "question": RunnablePassthrough() | RunnableLambda(lambda x: x["query"]),
         }
         | prompt
         | llm
         | StrOutputParser()
+        | RunnableLambda(lambda answer: {"content": answer})
     )
 
     log.info(

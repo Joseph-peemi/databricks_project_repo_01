@@ -33,7 +33,7 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
 import mlflow
-from mlflow.models import infer_signature
+from mlflow.models import ModelSignature
 
 from src.utils import load_config, get_logger, ensure_mlflow_experiment  # noqa: E402
 
@@ -68,12 +68,20 @@ ensure_mlflow_experiment(cfg)
 
 # COMMAND ----------
 
-input_example = {"question": "How do I enable Change Data Feed on a Delta table?"}
-output_example = (
-    "Set the table property delta.enableChangeDataFeed = true using ALTER TABLE "
-    "... SET TBLPROPERTIES. [1]"
+# Signature built from mlflow's own reference dataclasses (SplitChatMessagesRequest
+# -> StringResponse) rather than inferred from an example: notebook 06 deploys via
+# the Agent Framework (databricks.agents.deploy), which validates the registered
+# model's schema against exactly these two shapes and refuses to deploy anything
+# else. infer_signature on an example with an empty history=[] list can't reliably
+# infer that field's element type, so we use the exact reference shapes instead.
+from mlflow.models.rag_signatures import SplitChatMessagesRequest, StringResponse
+from mlflow.types.schema import convert_dataclass_to_schema
+
+input_example = {"query": "How do I enable Change Data Feed on a Delta table?", "history": []}
+signature = ModelSignature(
+    inputs=convert_dataclass_to_schema(SplitChatMessagesRequest()),
+    outputs=convert_dataclass_to_schema(StringResponse()),
 )
-signature = infer_signature(input_example, output_example)
 
 with mlflow.start_run(run_name="rag_chain_v1") as run:
     logged_model = mlflow.langchain.log_model(
@@ -115,11 +123,12 @@ log.info(f"Run ID: {run.info.run_id}")
 
 sanity_model = mlflow.pyfunc.load_model(logged_model.model_uri)
 sanity_answer = sanity_model.predict(input_example)
-# Because the logged signature was inferred from a single dict/str example,
-# pyfunc enforces it as a one-row batch internally, so the LangChain flavor
-# returns a one-element list here instead of a bare string -- unwrap it.
+# The schema-enforced pyfunc layer treats a single input as a one-row batch,
+# so this comes back as a one-element list of {"content": ...} dicts
+# (StringResponse shape) rather than a bare string -- unwrap both layers.
 if isinstance(sanity_answer, list):
     sanity_answer = sanity_answer[0]
+sanity_answer = sanity_answer["content"]
 log.info(f"Sanity check answer: {sanity_answer}")
 assert isinstance(sanity_answer, str) and len(sanity_answer) > 0
 
@@ -183,7 +192,7 @@ reloaded = mlflow.pyfunc.load_model(
 reloaded_answer = reloaded.predict(input_example)
 if isinstance(reloaded_answer, list):
     reloaded_answer = reloaded_answer[0]
-log.info(reloaded_answer)
+log.info(reloaded_answer["content"])
 
 # COMMAND ----------
 

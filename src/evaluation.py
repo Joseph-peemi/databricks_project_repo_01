@@ -187,7 +187,7 @@ def measure_latency(chain, questions: list[str]) -> dict[str, float]:
     latencies = []
     for q in questions:
         start = time.perf_counter()
-        chain.invoke({"question": q})
+        chain.invoke({"query": q, "history": []})
         latencies.append(time.perf_counter() - start)
 
     series = pd.Series(latencies)

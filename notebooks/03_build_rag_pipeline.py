@@ -107,8 +107,8 @@ test_questions = [
 ]
 
 for q in test_questions:
-    answer = chain.invoke({"question": q})
-    print(f"Q: {q}\nA: {answer}\n{'-' * 80}")
+    answer = chain.invoke({"query": q, "history": []})
+    print(f"Q: {q}\nA: {answer['content']}\n{'-' * 80}")
 
 # COMMAND ----------
 
