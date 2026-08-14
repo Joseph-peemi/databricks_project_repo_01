@@ -125,11 +125,20 @@ def query_endpoint(cfg: Config, question: str) -> str:
     from mlflow.deployments import get_deploy_client
 
     client = get_deploy_client("databricks")
+    # client.predict's `inputs` is sent AS-IS as the /invocations request
+    # body (it does not wrap it) -- send the SplitChatMessagesRequest shape
+    # directly, matching the model's registered signature (see notebook 04).
     response = call_with_retry(
         client.predict,
         endpoint=cfg.serving_endpoint_name,
-        inputs={"inputs": [{"query": question, "history": []}]},
+        inputs={"query": question, "history": []},
     )
-    # Matches the registered model's StringResponse output shape ({"content": ...}),
-    # required by the Agent Framework deployment in deploy_with_agents_framework().
-    return response["predictions"][0]["content"]
+    # The registered output schema is StringResponse ({"content": ...}), but
+    # Model Serving may return it bare or wrapped under "predictions" (as
+    # either a single object or a one-element list) depending on how the
+    # serving layer packages a signature-typed, non-tensor response --
+    # handle both instead of assuming one exact shape untested.
+    result = response.get("predictions", response)
+    if isinstance(result, list):
+        result = result[0]
+    return result["content"]

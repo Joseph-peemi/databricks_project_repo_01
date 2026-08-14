@@ -132,11 +132,16 @@ print(answer)
 import time
 
 time.sleep(30)  # inference table writes are asynchronous, allow a short delay
-inference_table = (
-    f"{cfg.raw['serving']['inference_table_catalog']}."
-    f"{cfg.raw['serving']['inference_table_schema']}."
-    f"{cfg.raw['serving']['inference_table_prefix']}_payload"
-)
+
+# agents.deploy() provisions its own AI Gateway inference table and picks the
+# catalog/schema/table-name-prefix itself -- it does NOT read
+# cfg.raw["serving"]["inference_table_*"] (those config.yaml keys apply only
+# to the deploy_with_sdk() legacy path, which this project doesn't use).
+# Read the real location back from the live endpoint config instead of
+# reconstructing a name that would silently point at the wrong catalog.
+endpoint_config = w.serving_endpoints.get(cfg.serving_endpoint_name)
+itc = endpoint_config.ai_gateway.inference_table_config
+inference_table = f"{itc.catalog_name}.{itc.schema_name}.{itc.table_name_prefix}_payload"
 display(spark.table(inference_table).orderBy("timestamp_ms", ascending=False).limit(5))  # noqa: F821
 
 # COMMAND ----------
