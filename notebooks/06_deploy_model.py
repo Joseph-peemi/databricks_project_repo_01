@@ -131,8 +131,6 @@ print(answer)
 
 import time
 
-time.sleep(30)  # inference table writes are asynchronous, allow a short delay
-
 # agents.deploy() provisions its own AI Gateway inference table and picks the
 # catalog/schema/table-name-prefix itself -- it does NOT read
 # cfg.raw["serving"]["inference_table_*"] (those config.yaml keys apply only
@@ -142,7 +140,31 @@ time.sleep(30)  # inference table writes are asynchronous, allow a short delay
 endpoint_config = w.serving_endpoints.get(cfg.serving_endpoint_name)
 itc = endpoint_config.ai_gateway.inference_table_config
 inference_table = f"{itc.catalog_name}.{itc.schema_name}.{itc.table_name_prefix}_payload"
-display(spark.table(inference_table).orderBy("timestamp_ms", ascending=False).limit(5))  # noqa: F821
+
+# The table is created with a minimal schema (just databricks_request_id)
+# and evolves to include request/response/timestamp columns only once the
+# first row actually lands -- which can take longer than a single fixed
+# sleep, and the exact column name to sort by isn't known until it does.
+# Poll instead of assuming both the timing and the schema.
+inference_df = None
+for attempt in range(6):
+    time.sleep(20)
+    df = spark.table(inference_table)  # noqa: F821
+    if df.count() > 0:
+        inference_df = df
+        break
+    log.info(f"No rows in {inference_table} yet (attempt {attempt + 1}/6) -- waiting...")
+
+if inference_df is not None:
+    order_col = "timestamp_ms" if "timestamp_ms" in inference_df.columns else None
+    result = inference_df.orderBy(order_col, ascending=False) if order_col else inference_df
+    display(result.limit(5))  # noqa: F821
+else:
+    log.warning(
+        f"No rows landed in {inference_table} yet after ~2 minutes -- "
+        "inference-table logging may just need more time; re-query this "
+        "table later to verify it's capturing traffic."
+    )
 
 # COMMAND ----------
 
