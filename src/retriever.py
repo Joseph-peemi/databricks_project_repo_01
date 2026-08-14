@@ -35,11 +35,14 @@ def get_retriever(cfg: Config) -> BaseRetriever:
     to hybrid (keyword + vector) search when queries contain exact
     identifiers (e.g. API/config names) that embeddings alone under-match.
     """
+    # text_column is intentionally omitted: this version of databricks-langchain
+    # auto-detects it from the index's own embedding_source_column config
+    # (set at index-creation time in notebook 02) and raises ValueError if you
+    # also pass it explicitly, even when the value would be identical.
     vector_store = DatabricksVectorSearch(
         endpoint=cfg.vs_endpoint_name,
         index_name=cfg.vs_index_name,
         columns=["url", "title", "chunk_text"],
-        text_column="chunk_text",
     )
 
     retriever = vector_store.as_retriever(
