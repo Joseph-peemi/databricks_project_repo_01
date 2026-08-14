@@ -86,12 +86,19 @@ def load_documents_from_volume(spark, cfg: Config):
     """Read every .html/.md file landed in the UC Volume and return a Spark
     DataFrame matching the Bronze schema (url, title, content, ingested_at).
 
-    We read from a UC Volume (not driver-local disk) because Volumes are
-    governed by Unity Catalog (access control, lineage) and are visible to
-    every node in the cluster -- required for distributed processing and for
-    reproducibility when someone re-runs this notebook next quarter.
+    Reads via plain filesystem I/O (UC Volumes are also exposed as a normal
+    POSIX-style path) rather than `spark.read.format("binaryFile")`: the
+    latter was observed to hang indefinitely against this volume -- a single
+    Spark job/stage stuck for 1h+ reading ~10 small files, reproducible even
+    with `.limit(1)`, while plain `os.listdir`/`open()` on the same path
+    completed in under a second. For a driver-side, lab-scale corpus like
+    this (tens to low hundreds of pages), skipping the distributed reader
+    entirely is simpler and doesn't depend on it working.
     """
+    import os
+
     import pyspark.sql.functions as F
+    from pyspark.sql import Row
     from pyspark.sql.types import StringType, StructField, StructType
 
     schema = StructType(
@@ -102,31 +109,29 @@ def load_documents_from_volume(spark, cfg: Config):
         ]
     )
 
-    files_df = spark.read.format("binaryFile").load(f"{cfg.volume_path}/*")
-
-    def _row_to_doc(path: str, content_bytes: bytes) -> tuple[str, str, str]:
+    def _row_to_doc(filename: str, content_bytes: bytes) -> tuple[str, str, str]:
         raw = content_bytes.decode("utf-8", errors="ignore")
-        if path.endswith((".html", ".htm")):
+        if filename.endswith((".html", ".htm")):
             text = clean_html_to_text(raw)
         else:
             text = raw  # already markdown/plain text
-        title = text.splitlines()[0].lstrip("# ").strip() if text else path
+        title = text.splitlines()[0].lstrip("# ").strip() if text else filename
         # Reconstruct a docs.databricks.com-style URL from the filename so
         # citations in the final answer are clickable.
-        slug = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        slug = filename.rsplit(".", 1)[0]
         url = f"https://docs.databricks.com/{slug.replace('__', '/')}"
         return url, title, text
 
-    from pyspark.sql import Row
-
-    parsed_rows = [
-        Row(url=u, title=t, content=c)
-        for u, t, c in (
-            _row_to_doc(r["path"], r["content"])
-            for r in files_df.select("path", "content").collect()
-        )
-        if c and len(c.strip()) > 0
+    filenames = [
+        f for f in os.listdir(cfg.volume_path) if f.endswith((".html", ".htm", ".md"))
     ]
+    parsed_rows = []
+    for filename in filenames:
+        with open(f"{cfg.volume_path}/{filename}", "rb") as f:
+            content_bytes = f.read()
+        u, t, c = _row_to_doc(filename, content_bytes)
+        if c and len(c.strip()) > 0:
+            parsed_rows.append(Row(url=u, title=t, content=c))
 
     bronze_df = spark.createDataFrame(parsed_rows, schema=schema).withColumn(
         "ingested_at", F.current_timestamp()
