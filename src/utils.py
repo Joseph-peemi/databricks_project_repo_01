@@ -137,7 +137,17 @@ def load_config(config_path: str | Path = _CONFIG_PATH) -> Config:
         if not env_key.startswith("RAG_"):
             continue
         _, path = env_key.split("RAG_", 1)
-        section, key = path.lower().split("__")
+        # Not every RAG_-prefixed env var in every environment follows our
+        # RAG_<SECTION>__<KEY> convention -- e.g. the Agent Framework serving
+        # container injects its own RAG_* platform env vars with no "__" in
+        # them, which crashed this unconditional 2-way unpack with
+        # "not enough values to unpack (expected 2, got 1)" at model-load
+        # time. Skip anything that doesn't match the shape instead of
+        # assuming every RAG_ var is ours.
+        parts = path.lower().split("__")
+        if len(parts) != 2:
+            continue
+        section, key = parts
         if section in raw and key in raw[section]:
             log.info(f"Overriding {section}.{key} from environment variable {env_key}")
             raw[section][key] = env_val
